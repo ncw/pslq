@@ -85,7 +85,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	tol.Rsh(tol, target)
 
 	if verbose {
-		log.Printf("PSLQ using prec %i and tol %s", env.Prec, tol)
+		log.Printf("PSLQ using prec %d and tol %s", env.Prec, tol)
 	}
 
 	if tol.Sign() == 0 {
@@ -98,18 +98,18 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	_100 := env.NewInt(100)
 
 	// Temporary variables
-	tmp0 := new(fp.FixedPoint)
-	tmp1 := new(fp.FixedPoint)
+	tmp0 := env.New()
+	tmp1 := env.New()
 
 	// Convert to fixed-point numbers. The dummy None is added so we can
 	// use 1-based indexing. (This just allows us to be consistent with
 	// Bailey's indexing. The algorithm is 100 lines long, so debugging
 	// a single wrong index can be painful.)
 	xNew := make([]fp.FixedPoint, len(x)+1)
-	minx := new(fp.FixedPoint)
+	minx := env.New()
 	for i, xk := range x {
 		p := &xNew[i+1]
-		p.Lsh(&xk, extra)
+		p.Convert(env, &xk)
 		tmp0.Abs(p)
 		if minx == nil || minx.Cmp(tmp0) < 0 {
 			minx.Set(tmp0)
@@ -155,6 +155,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	}
 	for k := 1; k <= n; k++ {
 		var t fp.FixedPoint
+		t.Init(env)
 		for j := k; j <= n; j++ {
 			tmp0.Mul(&x[j], &x[j])
 			t.Add(&t, tmp0)
@@ -343,7 +344,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				}
 				if maxc < maxcoeff {
 					if verbose {
-						log.Printf("FOUND relation at iter %i/%i, error: %d", REP, maxsteps, err)
+						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, err)
 					}
 					return vec, nil
 				}
@@ -373,14 +374,14 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			norm /= 100
 		}
 		if verbose {
-			log.Printf("%i/%i:  Error: %8d   Norm: %d", REP, maxsteps, best_err, norm)
+			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, norm)
 		}
 		if norm >= maxcoeff {
 			break
 		}
 	}
 	if verbose {
-		log.Printf("CANCELLING after step %i/%i.", REP, maxsteps)
+		log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
 		log.Printf("Could not find an integer relation. Norm bound: %d", norm)
 	}
 	return nil, nil
