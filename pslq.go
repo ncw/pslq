@@ -6,6 +6,7 @@ import (
 	"log"
 
 	fp "fixedpoint"
+	"fmt"
 )
 
 func max(a, b int) int {
@@ -29,6 +30,27 @@ func newMatrix(rows, cols int) [][]fp.FixedPoint {
 		M[i] = make([]fp.FixedPoint, cols)
 	}
 	return M
+}
+
+// Print a matrix
+func printMatrix(name string, X [][]fp.FixedPoint) {
+	n := len(X) - 1
+	for i := 1; i <= n; i++ {
+		for j := 1; j <= n; j++ {
+			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, &X[i][j])
+		}
+		fmt.Printf("\n")
+	}
+}
+
+// Print a vector
+func printVector(name string, x []fp.FixedPoint) {
+	for i := range x {
+		if i == 0 {
+			continue
+		}
+		fmt.Printf("%s[%d] = %d\n", name, i, &x[i])
+	}
 }
 
 // Given a vector of real numbers `x = [x_0, x_1, ..., x_n]`, ``pslq(x)``
@@ -77,7 +99,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 
 	target := (startEnv.Prec * 3) / 4
 
-	extra := uint(64) // was 60 but made it 2**n
+	extra := uint(60) // was 60 but made it 2**n FIXME make 64 again
 	env := fp.NewEnvironment(startEnv.Prec + extra)
 
 	// FIXME make it so you can pass tol in
@@ -93,7 +115,6 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	}
 
 	// Useful constants
-	_0 := env.NewInt(1)
 	_1 := env.NewInt(1)
 	_100 := env.NewInt(100)
 
@@ -107,15 +128,18 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	// a single wrong index can be painful.)
 	xNew := make([]fp.FixedPoint, len(x)+1)
 	minx := env.New()
+	minxFirst := true
 	for i, xk := range x {
 		p := &xNew[i+1]
 		p.Convert(env, &xk)
 		tmp0.Abs(p)
-		if minx == nil || minx.Cmp(tmp0) < 0 {
+		if minxFirst || tmp0.Cmp(minx) < 0 {
+			minxFirst = false
 			minx.Set(tmp0)
 		}
 	}
 	x = xNew
+	printVector("x", x)
 
 	// Sanity check on magnitudes
 	if minx.Sign() == 0 {
@@ -127,10 +151,10 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	}
 
 	tmp0.SetInt64(env, 4)
-	tmp1.SetInt64(env, 3)
-	tmp0.Div(tmp0, tmp1)
+	tmp0.DivInt64(tmp0, 3)
 	var g fp.FixedPoint
 	g.Sqrt(tmp0) /// sqrt(4<<prec)/3)
+	fmt.Printf("g = %d\n", &g)
 	A := newMatrix(n+1, n+1)
 	B := newMatrix(n+1, n+1)
 	H := newMatrix(n+1, n+1)
@@ -139,63 +163,73 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
 			if i == j {
-				A[i][j].Set(_1)
-				B[i][j].Set(_1)
+				A[i][j].SetInt64(env, 1)
+				B[i][j].SetInt64(env, 1)
 			} else {
-				A[i][j].Set(_0)
-				B[i][j].Set(_0)
+				A[i][j].SetInt64(env, 0)
+				B[i][j].SetInt64(env, 0)
 			}
-			H[i][j].Set(_0)
+			H[i][j].SetInt64(env, 0)
 		}
 	}
+	printMatrix("A", A)
+	printMatrix("B", B)
+	printMatrix("H", H)
 	// step 2
 	s := make([]fp.FixedPoint, n+1)
 	for i := 1; i <= n; i++ {
-		s[i].Set(_0)
+		s[i].SetInt64(env, 0)
 	}
 	for k := 1; k <= n; k++ {
 		var t fp.FixedPoint
-		t.Init(env)
+		t.SetInt64(env, 0)
 		for j := k; j <= n; j++ {
 			tmp0.Mul(&x[j], &x[j])
 			t.Add(&t, tmp0)
 		}
 		s[k].Sqrt(&t)
 	}
-	t := s[1]
-	y := x[:]
+	printVector("s", s)
+	var t fp.FixedPoint
+	t.Set(&s[1])
+	y := make([]fp.FixedPoint, len(x))
+	copy(y, x)
 	for k := 1; k <= n; k++ {
 		// y[k] = (x[k] << prec) / t
 		y[k].Div(&x[k], &t)
 		// s[k] = (s[k] << prec) / t
 		s[k].Div(&s[k], &t)
 	}
+	printVector("y", y)
+	printVector("s", s)
 	// step 3
 	for i := 1; i <= n; i++ {
 		for j := i + 1; j < n; j++ {
-			H[i][j].Set(_0)
+			H[i][j].SetInt64(env, 0)
 		}
 		if i <= n-1 {
 			if s[i].Sign() != 0 {
 				// H[i][i] = (s[i+1] << prec) / s[i]
 				H[i][i].Div(&s[i+1], &s[i])
 			} else {
-				H[i][i].Set(_0)
+				H[i][i].SetInt64(env, 0)
 			}
 		}
 		for j := 1; j < i; j++ {
 			var sjj1 fp.FixedPoint
 			sjj1.Mul(&s[j], &s[j+1])
+			fmt.Printf("sjj1 = %d\n", &sjj1)
 			if sjj1.Sign() != 0 {
 				// H[i][j] = ((-y[i] * y[j]) << prec) / sjj1
-				tmp0.Mul(&y[i], &y[i])
+				tmp0.Mul(&y[i], &y[j])
 				tmp0.Neg(tmp0)
 				H[i][j].Div(tmp0, &sjj1)
 			} else {
-				H[i][j].Set(_0)
+				H[i][j].SetInt64(env, 0)
 			}
 		}
 	}
+	printMatrix("H", H)
 	// step 4
 	for i := 2; i <= n; i++ {
 		for j := i - 1; j > 0; j-- {
@@ -221,13 +255,14 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				A[i][k].Sub(&A[i][k], tmp0)
 				// B[k][j] = B[k][j] + (t * B[k][i] >> prec)
 				tmp0.Mul(&t, &B[k][i])
-				B[k][j].Sub(&B[k][j], tmp0)
+				B[k][j].Add(&B[k][j], tmp0)
 			}
 		}
 	}
 	// Main algorithm
 	var REP int
 	var norm int64
+	vec := make([]int64, n) // FIXME big.Int?
 	for REP = 0; REP < maxsteps; REP++ {
 		// Step 1
 		m := -1
@@ -304,7 +339,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				for k := 1; k <= j; k++ {
 					// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
 					tmp0.Mul(&t, &H[j][k])
-					H[i][k].Add(&H[i][k], tmp0)
+					H[i][k].Sub(&H[i][k], tmp0)
 				}
 				for k := 1; k <= n; k++ {
 					// A[i][k] = A[i][k] - (t * A[j][k] >> prec)
@@ -330,8 +365,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			// Maybe we are done?
 			if err.Cmp(tol) < 0 {
 				// We are done if the coefficients are acceptable
+				// FIXME use big.Int here?
 				maxc := int64(0)
-				vec := make([]int64, n)
 				for j := 1; i <= n; i++ {
 					vec[j-1] = B[j][i].RoundInt64()
 					t := vec[j-1]
@@ -344,7 +379,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				}
 				if maxc < maxcoeff {
 					if verbose {
-						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, err)
+						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
 					}
 					return vec, nil
 				}
@@ -356,12 +391,12 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		// Calculate a lower bound for the norm. We could do this
 		// more exactly (using the Euclidean norm) but there is probably
 		// no practical benefit.
-		recnorm := tmp1
-		recnorm.Set(_0)
+		var recnorm fp.FixedPoint
+		recnorm.SetInt64(env, 0)
 		for i := 1; i <= n; i++ {
 			for j := 1; j <= n; j++ {
 				tmp0.Abs(&H[i][j])
-				if tmp0.Cmp(recnorm) > 0 {
+				if tmp0.Cmp(&recnorm) > 0 {
 					recnorm.Set(tmp0)
 				}
 			}
@@ -369,7 +404,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		norm = maxcoeff
 		if recnorm.Sign() != 0 {
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
-			tmp0.Div(_1, recnorm)
+			tmp0.Div(_1, &recnorm)
 			norm = tmp0.Int64()
 			norm /= 100
 		}
