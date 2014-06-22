@@ -4,6 +4,7 @@ package pslq
 import (
 	"errors"
 	"log"
+	"math/big"
 
 	fp "fixedpoint"
 	"fmt"
@@ -189,6 +190,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		}
 		s[k].Sqrt(&t)
 	}
+	fmt.Println("Init Step 1")
 	printVector("s", s)
 	var t fp.FixedPoint
 	t.Set(&s[1])
@@ -200,6 +202,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		// s[k] = (s[k] << prec) / t
 		s[k].Div(&s[k], &t)
 	}
+	fmt.Println("Init Step 2")
 	printVector("y", y)
 	printVector("s", s)
 	// step 3
@@ -229,6 +232,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			}
 		}
 	}
+	fmt.Println("Init Step 3")
 	printMatrix("H", H)
 	// step 4
 	for i := 2; i <= n; i++ {
@@ -236,11 +240,19 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			//t = floor(H[i][j]/H[j,j] + 0.5)
 			if H[j][j].Sign() != 0 {
 				tmp0.Div(&H[i][j], &H[j][j])
+				// FIXME div is 1 different in py - temp for matching up
+				one := big.NewInt(1)         // FIXME
+				tmp0.Int.Sub(&tmp0.Int, one) // FIXME
 				t.Round(tmp0)
 			} else {
 				//t = 0
 				continue
 			}
+			fmt.Printf("H[i][j]=%d\n", &H[i][j])
+			fmt.Printf("H[j][j]=%d\n", &H[j][j])
+			fmt.Printf("tmp=%d\n", &tmp0.Int)
+			fmt.Printf("tmp=%d\n", tmp0)
+			fmt.Printf("t=%d\n", &t)
 			// y[j] = y[j] + (t * y[i] >> prec)
 			tmp0.Mul(&t, &y[i])
 			y[j].Add(&y[j], tmp0)
@@ -259,21 +271,25 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			}
 		}
 	}
+	fmt.Println("Init Step 4")
+	printMatrix("A", A)
+	printMatrix("B", B)
+	printMatrix("H", H)
 	// Main algorithm
 	var REP int
 	var norm int64
 	vec := make([]int64, n) // FIXME big.Int?
 	for REP = 0; REP < maxsteps; REP++ {
 		// Step 1
+		fmt.Println("Step 1")
 		m := -1
 		var szmax fp.FixedPoint
 		szmax.SetInt64(env, -1)
 		var gPower fp.FixedPoint
 		gPower.Set(&g)
 		for i := 1; i < n; i++ {
-			h := H[i][i]
 			var absH fp.FixedPoint
-			absH.Abs(&h)
+			absH.Abs(&H[i][i])
 			var sz fp.FixedPoint
 			sz.Mul(&gPower, &absH)
 			// sz := (g**i * abs(h)) >> (prec * (i - 1))
@@ -283,8 +299,12 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			}
 			gPower.Mul(&gPower, &g)
 		}
+		fmt.Printf("szmax=%d\n", &szmax)
+		fmt.Printf("m=%d\n", m)
 		// Step 2
+		fmt.Println("Step 2")
 		y[m], y[m+1] = y[m+1], y[m]
+		printVector("y", y)
 		for i := 1; i < n+1; i++ {
 			H[m][i], H[m+1][i] = H[m+1][i], H[m][i]
 		}
@@ -294,7 +314,11 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		for i := 1; i < n+1; i++ {
 			B[i][m], B[i][m+1] = B[i][m+1], B[i][m]
 		}
+		printMatrix("A", A)
+		printMatrix("B", B)
+		printMatrix("H", H)
 		// Step 3
+		fmt.Println("Step 3")
 		if m <= n-2 {
 			tmp0.Mul(&H[m][m], &H[m][m])
 			tmp1.Mul(&H[m][m+1], &H[m][m+1])
@@ -324,7 +348,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				H[i][m+1].Sub(tmp1, tmp0)
 			}
 		}
+		printMatrix("H", H)
 		// Step 4
+		fmt.Println("Step 4")
 		for i := m + 1; i <= n; i++ {
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
@@ -351,6 +377,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				}
 			}
 		}
+		printMatrix("A", A)
+		printMatrix("B", B)
+		printMatrix("H", H)
 		// Until a relation is found, the error typically decreases
 		// slowly (e.g. a factor 1-10) with each step TODO: we could
 		// compare err from two successive iterations. If there is a
@@ -367,9 +396,11 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				// We are done if the coefficients are acceptable
 				// FIXME use big.Int here?
 				maxc := int64(0)
-				for j := 1; i <= n; i++ {
-					vec[j-1] = B[j][i].RoundInt64()
-					t := vec[j-1]
+				for j := 1; j <= n; j++ {
+					fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
+					t := B[j][i].RoundInt64()
+					fmt.Printf("vec[%d]=%d\n", j-1, t)
+					vec[j-1] = t
 					if t < 0 {
 						t = -t
 					}
@@ -377,6 +408,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 						maxc = t
 					}
 				}
+				fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
 				if maxc < maxcoeff {
 					if verbose {
 						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
