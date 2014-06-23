@@ -1,12 +1,14 @@
 // Implens PSLQ algorithm for iteger releation detection.
 package pslq
 
-// FIXME A and B are always integers
 // FIXME A isn't used in the result?
 //
 // Mising one of the terminaton tests: If the largest entry of A
 // exceeds the level of numeric precision used, then precision is
 // exhausted.
+
+// FIXME make coeff and return vec into big.Ints since they are anyway
+// really
 
 import (
 	"errors"
@@ -42,8 +44,28 @@ func newMatrix(rows, cols int) [][]fp.FixedPoint {
 	return M
 }
 
+// Make a new matrix with that many rows and that many cols
+func newIntMatrix(rows, cols int) [][]big.Int {
+	M := make([][]big.Int, rows)
+	for i := 0; i < cols; i++ {
+		M[i] = make([]big.Int, cols)
+	}
+	return M
+}
+
 // Print a matrix
 func printMatrix(name string, X [][]fp.FixedPoint) {
+	n := len(X) - 1
+	for i := 1; i <= n; i++ {
+		for j := 1; j <= n; j++ {
+			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, &X[i][j])
+		}
+		fmt.Printf("\n")
+	}
+}
+
+// Print a matrix
+func printIntMatrix(name string, X [][]big.Int) {
 	n := len(X) - 1
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
@@ -169,8 +191,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	if debug {
 		fmt.Printf("γ = %d\n", &γ)
 	}
-	A := newMatrix(n+1, n+1)
-	B := newMatrix(n+1, n+1)
+	A := newIntMatrix(n+1, n+1)
+	B := newIntMatrix(n+1, n+1)
 	H := newMatrix(n+1, n+1)
 	// Initialization Step 1
 	//
@@ -178,18 +200,18 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
 			if i == j {
-				A[i][j].SetInt64(env, 1)
-				B[i][j].SetInt64(env, 1)
+				A[i][j].SetInt64(1)
+				B[i][j].SetInt64(1)
 			} else {
-				A[i][j].SetInt64(env, 0)
-				B[i][j].SetInt64(env, 0)
+				A[i][j].SetInt64(0)
+				B[i][j].SetInt64(0)
 			}
 			H[i][j].SetInt64(env, 0)
 		}
 	}
 	if debug {
-		printMatrix("A", A)
-		printMatrix("B", B)
+		printIntMatrix("A", A)
+		printIntMatrix("B", B)
 		printMatrix("H", H)
 	}
 	// Initialization Step 2
@@ -238,9 +260,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	// Compute the n×(n−1) matrix H as follows:
 	// For i := 1 to n:
 	//     for j := i + 1 to n − 1:
-	//         set Hij := 0;
-	//     endfor;
-	//     if i ≤ n − 1 then set Hii := s_(i+1)/s_i;
+	//         set Hij := 0
+	//     endfor
+	//     if i ≤ n − 1 then set Hii := s_(i+1)/s_i
 	//     for j := 1 to i−1:
 	//         set Hij := −y_i * y_j / (s_j * s_(j+1))
 	//     endfor
@@ -283,18 +305,19 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	//
 	// For i := 2 to n:
 	//     for j := i−1 to 1 step−1:
-	//         t := nint(Hij/Hjj);
-	//         y_j := y_j + t * y_i;
+	//         t := nint(Hij/Hjj)
+	//         y_j := y_j + t * y_i
 	//         for k := 1 to j:
-	//             Hik := Hik − t * Hjk;
-	//         endfor;
+	//             Hik := Hik − t * Hjk
+	//         endfor
 	//         for k := 1 to n:
 	//             Aik := Aik − t * Ajk
-	//             Bkj := Bkj + t * Bki;
+	//             Bkj := Bkj + t * Bki
 	//         endfor
 	//     endfor
 	// endfor
 	for i := 2; i <= n; i++ {
+		var T, Tmp0 big.Int
 		for j := i - 1; j > 0; j-- {
 			//t = floor(H[i][j]/H[j,j] + 0.5)
 			if H[j][j].Sign() != 0 {
@@ -302,7 +325,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				// FIXME div is 1 different in py - temp for matching up
 				one := big.NewInt(1)         // FIXME
 				tmp0.Int.Sub(&tmp0.Int, one) // FIXME
-				t.Round(tmp0)
+				tmp0.RoundBigInt(&T)
 			} else {
 				//t = 0
 				continue
@@ -312,30 +335,30 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				fmt.Printf("H[j][j]=%d\n", &H[j][j])
 				fmt.Printf("tmp=%d\n", &tmp0.Int)
 				fmt.Printf("tmp=%d\n", tmp0)
-				fmt.Printf("t=%d\n", &t)
+				fmt.Printf("t=%d\n", &T)
 			}
 			// y[j] = y[j] + (t * y[i] >> prec)
-			tmp0.Mul(&t, &y[i])
+			tmp0.MulBigInt(&y[i], &T)
 			y[j].Add(&y[j], tmp0)
 			for k := 1; k <= j; k++ {
 				// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-				tmp0.Mul(&t, &H[j][k])
+				tmp0.MulBigInt(&H[j][k], &T)
 				H[i][k].Sub(&H[i][k], tmp0)
 			}
 			for k := 1; k <= n; k++ {
 				// A[i][k] = A[i][k] - (t * A[j][k] >> prec)
-				tmp0.Mul(&t, &A[j][k])
-				A[i][k].Sub(&A[i][k], tmp0)
+				Tmp0.Mul(&T, &A[j][k])
+				A[i][k].Sub(&A[i][k], &Tmp0)
 				// B[k][j] = B[k][j] + (t * B[k][i] >> prec)
-				tmp0.Mul(&t, &B[k][i])
-				B[k][j].Add(&B[k][j], tmp0)
+				Tmp0.Mul(&T, &B[k][i])
+				B[k][j].Add(&B[k][j], &Tmp0)
 			}
 		}
 	}
 	if debug {
 		fmt.Println("Init Step 4")
-		printMatrix("A", A)
-		printMatrix("B", B)
+		printIntMatrix("A", A)
+		printIntMatrix("B", B)
 		printMatrix("H", H)
 	}
 	// Main algorithm
@@ -385,8 +408,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		if debug {
 			fmt.Println("Step 2")
 			printVector("y", y)
-			printMatrix("A", A)
-			printMatrix("B", B)
+			printIntMatrix("A", A)
+			printIntMatrix("B", B)
 			printMatrix("H", H)
 		}
 		// Step 3
@@ -397,10 +420,10 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		// t1 := Hmm/t0
 		// t2 := H(m,m+1)/t0.
 		// for i := m to n:
-		//     t3 := Him;
-		//     t4 := Hi,m+1;
-		//     Him := t1t3 +t2t4;
-		//     Hi,m+1 := −t2t3 +t1t4;
+		//     t3 := Him
+		//     t4 := Hi,m+1
+		//     Him := t1t3 +t2t4
+		//     Hi,m+1 := −t2t3 +t1t4
 		// endfor.
 		if m <= n-2 {
 			tmp0.Mul(&H[m][m], &H[m][m])
@@ -440,11 +463,11 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		//
 		// For i := m+1 to n:
 		//     for j := min(i−1, m+1) to 1 step −1:
-		//         t := nint(Hij/Hjj);
-		//         yj := yj + t * yi;
+		//         t := nint(Hij/Hjj)
+		//         yj := yj + t * yi
 		//         for k := 1 to j:
 		//             Hik := Hik − tHjk
-		//         endfor;
+		//         endfor
 		//         for k := 1 to n:
 		//             Aik := Aik −tAjk
 		//             Bkj := Bkj +tBki
@@ -452,35 +475,36 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		//     endfor
 		// endfor.
 		for i := m + 1; i <= n; i++ {
+			var T, Tmp0 big.Int
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
 					// Precision probably exhausted
 					break
 				}
 				tmp0.Div(&H[i][j], &H[j][j])
-				t.Round(tmp0)
+				tmp0.RoundBigInt(&T)
 				// y[j] = y[j] + ((t * y[i]) >> prec)
-				tmp0.Mul(&t, &y[i])
+				tmp0.MulBigInt(&y[i], &T)
 				y[j].Add(&y[j], tmp0)
 				for k := 1; k <= j; k++ {
 					// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-					tmp0.Mul(&t, &H[j][k])
+					tmp0.MulBigInt(&H[j][k], &T)
 					H[i][k].Sub(&H[i][k], tmp0)
 				}
 				for k := 1; k <= n; k++ {
 					// A[i][k] = A[i][k] - (t * A[j][k] >> prec)
-					tmp0.Mul(&t, &A[j][k])
-					A[i][k].Sub(&A[i][k], tmp0)
+					Tmp0.Mul(&T, &A[j][k])
+					A[i][k].Sub(&A[i][k], &Tmp0)
 					// B[k][j] = B[k][j] + (t * B[k][i] >> prec)
-					tmp0.Mul(&t, &B[k][i])
-					B[k][j].Add(&B[k][j], tmp0)
+					Tmp0.Mul(&T, &B[k][i])
+					B[k][j].Add(&B[k][j], &Tmp0)
 				}
 			}
 		}
 		if debug {
 			fmt.Println("Step 4")
-			printMatrix("A", A)
-			printMatrix("B", B)
+			printIntMatrix("A", A)
+			printIntMatrix("B", B)
 			printMatrix("H", H)
 		}
 
@@ -515,7 +539,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 					if debug {
 						fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
 					}
-					t := B[j][i].RoundInt64()
+					t := B[j][i].Int64()
 					if debug {
 						fmt.Printf("vec[%d]=%d\n", j-1, t)
 					}
