@@ -7,8 +7,7 @@ package pslq
 // exceeds the level of numeric precision used, then precision is
 // exhausted.
 
-// FIXME make coeff and return vec into big.Ints since they are anyway
-// really
+// FIXME where did / 100s come from?
 
 import (
 	"errors"
@@ -107,9 +106,9 @@ func printVector(name string, x []fp.FixedPoint) {
 // arithmetic, since this is significantly (about 7x) faster.
 //
 // prec is the number of bits of precision each fp.FixedPoint has
-func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps int, verbose bool) ([]int64, error) {
-	if maxcoeff == 0 {
-		maxcoeff = 1000
+func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
+	if maxcoeff == nil {
+		maxcoeff = big.NewInt(1000)
 	}
 	if maxsteps == 0 {
 		maxsteps = 100
@@ -149,6 +148,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	// Useful constants
 	_1 := env.NewInt(1)
 	_100 := env.NewInt(100)
+	_100big := big.NewInt(100)
+	var maxcoeff_fp fp.FixedPoint
+	maxcoeff_fp.SetBigInt(env, maxcoeff)
 
 	// Temporary variables
 	tmp0 := env.New()
@@ -363,8 +365,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	}
 	// Main algorithm
 	var REP int
-	var norm int64
-	vec := make([]int64, n) // FIXME big.Int?
+	var norm big.Int
+	vec := make([]big.Int, n)
 	for REP = 0; REP < maxsteps; REP++ {
 		// Step 1
 		//
@@ -524,7 +526,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		// "high quality" relation was detected. Reporting this to
 		// the user somehow might be useful.
 		var best_err fp.FixedPoint
-		best_err.SetInt64(env, int64(maxcoeff))
+		best_err.Set(&maxcoeff_fp)
 		for i := 1; i <= n; i++ {
 			// FIXME what if there is more than one value
 			// of |y| < tol?
@@ -534,27 +536,26 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			if err.Cmp(tol) < 0 {
 				// We are done if the coefficients are acceptable
 				// FIXME use big.Int here?
-				maxc := int64(0)
+				var maxc big.Int
 				for j := 1; j <= n; j++ {
 					if debug {
 						fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
 					}
-					t := B[j][i].Int64()
+					t := B[j][i]
 					if debug {
 						fmt.Printf("vec[%d]=%d\n", j-1, t)
 					}
 					vec[j-1] = t
-					if t < 0 {
-						t = -t
-					}
-					if t > maxc {
-						maxc = t
+					var absT big.Int
+					absT.Abs(&t)
+					if t.Cmp(&maxc) > 0 {
+						maxc.Set(&absT)
 					}
 				}
 				if debug {
 					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
 				}
-				if maxc < maxcoeff {
+				if maxc.Cmp(maxcoeff) < 0 {
 					if verbose {
 						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
 					}
@@ -586,23 +587,23 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				}
 			}
 		}
-		norm = maxcoeff
+		norm.Set(maxcoeff)
 		if recnorm.Sign() != 0 {
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
 			tmp0.Div(_1, &recnorm)
-			norm = tmp0.Int64()
-			norm /= 100
+			tmp0.BigInt(&norm)
+			norm.Div(&norm, _100big)
 		}
 		if verbose {
-			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, norm)
+			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, &norm)
 		}
-		if norm >= maxcoeff {
+		if norm.Cmp(maxcoeff) >= 0 {
 			break
 		}
 	}
 	if verbose {
 		log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
-		log.Printf("Could not find an integer relation. Norm bound: %d", norm)
+		log.Printf("Could not find an integer relation. Norm bound: %d", &norm)
 	}
 	return nil, nil
 }

@@ -2,18 +2,20 @@ package pslq
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
 	fp "fixedpoint"
 	"fmt"
 )
 
-func compareResult(t *testing.T, actual []int64, expected ...int64) {
+func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
 	if len(actual) != len(expected) {
 		t.Fatalf("lengths wrong of answers got %d expecting %d", len(actual), len(expected))
 	}
 	for i := range actual {
-		if actual[i] != expected[i] {
+		tmp := big.NewInt(expected[i])
+		if actual[i].Cmp(tmp) != 0 {
 			t.Errorf("actual[%d]=%d != expected[%d]=%d", i, actual[i], i, expected[i])
 		}
 	}
@@ -31,7 +33,7 @@ func TestPslqSimple(t *testing.T) {
 	in[0].SetInt64(env, 1)
 	in[1].SetInt64(env, -2)
 
-	out, err := Pslq(env, in, 0, 0, true)
+	out, err := Pslq(env, in, nil, 0, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -52,7 +54,7 @@ func TestPslq2(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, 0, 0, true)
+	out, err := Pslq(env, in, nil, 0, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
