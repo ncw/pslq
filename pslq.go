@@ -1,6 +1,13 @@
 // Implens PSLQ algorithm for iteger releation detection.
 package pslq
 
+// FIXME A and B are always integers
+// FIXME A isn't used in the result?
+//
+// Mising one of the terminaton tests: If the largest entry of A
+// exceeds the level of numeric precision used, then precision is
+// exhausted.
+
 import (
 	"errors"
 	"log"
@@ -9,6 +16,8 @@ import (
 	fp "fixedpoint"
 	"fmt"
 )
+
+const debug = false
 
 func max(a, b int) int {
 	if a >= b {
@@ -140,7 +149,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		}
 	}
 	x = xNew
-	printVector("x", x)
+	if debug {
+		printVector("x", x)
+	}
 
 	// Sanity check on magnitudes
 	if minx.Sign() == 0 {
@@ -153,14 +164,17 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 
 	tmp0.SetInt64(env, 4)
 	tmp0.DivInt64(tmp0, 3)
-	var g fp.FixedPoint
-	g.Sqrt(tmp0) /// sqrt(4<<prec)/3)
-	fmt.Printf("g = %d\n", &g)
+	var γ fp.FixedPoint
+	γ.Sqrt(tmp0) /// sqrt(4<<prec)/3)
+	if debug {
+		fmt.Printf("γ = %d\n", &γ)
+	}
 	A := newMatrix(n+1, n+1)
 	B := newMatrix(n+1, n+1)
 	H := newMatrix(n+1, n+1)
-	// Initialization
-	// step 1
+	// Initialization Step 1
+	//
+	// Set the n×n matrices A and B to the identity.
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
 			if i == j {
@@ -173,10 +187,21 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			H[i][j].SetInt64(env, 0)
 		}
 	}
-	printMatrix("A", A)
-	printMatrix("B", B)
-	printMatrix("H", H)
-	// step 2
+	if debug {
+		printMatrix("A", A)
+		printMatrix("B", B)
+		printMatrix("H", H)
+	}
+	// Initialization Step 2
+	//
+	// For k := 1 to n
+	//     compute s_k := sqrt( sum_j=k^n x_j^2 )
+	// endfor.
+	// Set t = 1/s1.
+	// For k := 1 to n:
+	//     y_k := t * x_k
+	//     s_k := t * s_k
+	// endfor.
 	s := make([]fp.FixedPoint, n+1)
 	for i := 1; i <= n; i++ {
 		s[i].SetInt64(env, 0)
@@ -190,8 +215,10 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		}
 		s[k].Sqrt(&t)
 	}
-	fmt.Println("Init Step 1")
-	printVector("s", s)
+	if debug {
+		fmt.Println("Init Step 2")
+		printVector("s", s)
+	}
 	var t fp.FixedPoint
 	t.Set(&s[1])
 	y := make([]fp.FixedPoint, len(x))
@@ -202,10 +229,22 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		// s[k] = (s[k] << prec) / t
 		s[k].Div(&s[k], &t)
 	}
-	fmt.Println("Init Step 2")
-	printVector("y", y)
-	printVector("s", s)
-	// step 3
+	if debug {
+		printVector("y", y)
+		printVector("s", s)
+	}
+	// Init Step 3
+	//
+	// Compute the n×(n−1) matrix H as follows:
+	// For i := 1 to n:
+	//     for j := i + 1 to n − 1:
+	//         set Hij := 0;
+	//     endfor;
+	//     if i ≤ n − 1 then set Hii := s_(i+1)/s_i;
+	//     for j := 1 to i−1:
+	//         set Hij := −y_i * y_j / (s_j * s_(j+1))
+	//     endfor
+	// endfor
 	for i := 1; i <= n; i++ {
 		for j := i + 1; j < n; j++ {
 			H[i][j].SetInt64(env, 0)
@@ -221,7 +260,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		for j := 1; j < i; j++ {
 			var sjj1 fp.FixedPoint
 			sjj1.Mul(&s[j], &s[j+1])
-			fmt.Printf("sjj1 = %d\n", &sjj1)
+			if debug {
+				fmt.Printf("sjj1 = %d\n", &sjj1)
+			}
 			if sjj1.Sign() != 0 {
 				// H[i][j] = ((-y[i] * y[j]) << prec) / sjj1
 				tmp0.Mul(&y[i], &y[j])
@@ -232,9 +273,27 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			}
 		}
 	}
-	fmt.Println("Init Step 3")
-	printMatrix("H", H)
-	// step 4
+	if debug {
+		fmt.Println("Init Step 3")
+		printMatrix("H", H)
+	}
+	// Init Step 4
+	//
+	// Perform full reduction on H, simultaneously updating y, A and B:
+	//
+	// For i := 2 to n:
+	//     for j := i−1 to 1 step−1:
+	//         t := nint(Hij/Hjj);
+	//         y_j := y_j + t * y_i;
+	//         for k := 1 to j:
+	//             Hik := Hik − t * Hjk;
+	//         endfor;
+	//         for k := 1 to n:
+	//             Aik := Aik − t * Ajk
+	//             Bkj := Bkj + t * Bki;
+	//         endfor
+	//     endfor
+	// endfor
 	for i := 2; i <= n; i++ {
 		for j := i - 1; j > 0; j-- {
 			//t = floor(H[i][j]/H[j,j] + 0.5)
@@ -248,11 +307,13 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				//t = 0
 				continue
 			}
-			fmt.Printf("H[i][j]=%d\n", &H[i][j])
-			fmt.Printf("H[j][j]=%d\n", &H[j][j])
-			fmt.Printf("tmp=%d\n", &tmp0.Int)
-			fmt.Printf("tmp=%d\n", tmp0)
-			fmt.Printf("t=%d\n", &t)
+			if debug {
+				fmt.Printf("H[i][j]=%d\n", &H[i][j])
+				fmt.Printf("H[j][j]=%d\n", &H[j][j])
+				fmt.Printf("tmp=%d\n", &tmp0.Int)
+				fmt.Printf("tmp=%d\n", tmp0)
+				fmt.Printf("t=%d\n", &t)
+			}
 			// y[j] = y[j] + (t * y[i] >> prec)
 			tmp0.Mul(&t, &y[i])
 			y[j].Add(&y[j], tmp0)
@@ -271,40 +332,47 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			}
 		}
 	}
-	fmt.Println("Init Step 4")
-	printMatrix("A", A)
-	printMatrix("B", B)
-	printMatrix("H", H)
+	if debug {
+		fmt.Println("Init Step 4")
+		printMatrix("A", A)
+		printMatrix("B", B)
+		printMatrix("H", H)
+	}
 	// Main algorithm
 	var REP int
 	var norm int64
 	vec := make([]int64, n) // FIXME big.Int?
 	for REP = 0; REP < maxsteps; REP++ {
 		// Step 1
-		fmt.Println("Step 1")
+		//
+		// Select m such that γ^i * |Hii| is maximal when i = m.
 		m := -1
 		var szmax fp.FixedPoint
 		szmax.SetInt64(env, -1)
-		var gPower fp.FixedPoint
-		gPower.Set(&g)
+		var γPower fp.FixedPoint
+		γPower.Set(&γ)
 		for i := 1; i < n; i++ {
 			var absH fp.FixedPoint
 			absH.Abs(&H[i][i])
 			var sz fp.FixedPoint
-			sz.Mul(&gPower, &absH)
+			sz.Mul(&γPower, &absH)
 			// sz := (g**i * abs(h)) >> (prec * (i - 1))
 			if sz.Cmp(&szmax) > 0 {
 				m = i
 				szmax.Set(&sz)
 			}
-			gPower.Mul(&gPower, &g)
+			γPower.Mul(&γPower, &γ)
 		}
-		fmt.Printf("szmax=%d\n", &szmax)
-		fmt.Printf("m=%d\n", m)
+		if debug {
+			fmt.Println("Step 1")
+			fmt.Printf("szmax=%d\n", &szmax)
+			fmt.Printf("m=%d\n", m)
+		}
 		// Step 2
-		fmt.Println("Step 2")
+		//
+		// Exchange entries m and m+1 of y, corresponding rows
+		// of A and H, and corresponding columns of B.
 		y[m], y[m+1] = y[m+1], y[m]
-		printVector("y", y)
 		for i := 1; i < n+1; i++ {
 			H[m][i], H[m+1][i] = H[m+1][i], H[m][i]
 		}
@@ -314,11 +382,26 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		for i := 1; i < n+1; i++ {
 			B[i][m], B[i][m+1] = B[i][m+1], B[i][m]
 		}
-		printMatrix("A", A)
-		printMatrix("B", B)
-		printMatrix("H", H)
+		if debug {
+			fmt.Println("Step 2")
+			printVector("y", y)
+			printMatrix("A", A)
+			printMatrix("B", B)
+			printMatrix("H", H)
+		}
 		// Step 3
-		fmt.Println("Step 3")
+		//
+		// If m ≤ n−2 then update H as follows:
+		//
+		// t0 := sqrt( Hmm^2 + H(m,m+1)^2 )
+		// t1 := Hmm/t0
+		// t2 := H(m,m+1)/t0.
+		// for i := m to n:
+		//     t3 := Him;
+		//     t4 := Hi,m+1;
+		//     Him := t1t3 +t2t4;
+		//     Hi,m+1 := −t2t3 +t1t4;
+		// endfor.
 		if m <= n-2 {
 			tmp0.Mul(&H[m][m], &H[m][m])
 			tmp1.Mul(&H[m][m+1], &H[m][m+1])
@@ -326,7 +409,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			var t0 fp.FixedPoint
 			t0.Sqrt(tmp0)
 			// A zero element probably indicates that the precision has
-			// been exhausted. XXX: this could be spurious, due to
+			// been exhausted. FIXME: this could be spurious, due to
 			// using fixed-point arithmetic
 			if t0.Sign() == 0 {
 				break
@@ -336,8 +419,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			t2.Div(&H[m][m+1], &t0)
 			for i := m; i <= n; i++ {
 				var t3, t4 fp.FixedPoint
-				t3 = H[i][m]
-				t4 = H[i][m+1]
+				t3.Set(&H[i][m])
+				t4.Set(&H[i][m+1])
 				// H[i][m] = (t1*t3 + t2*t4) >> prec
 				tmp0.Mul(&t1, &t3)
 				tmp1.Mul(&t2, &t4)
@@ -348,9 +431,26 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				H[i][m+1].Sub(tmp1, tmp0)
 			}
 		}
-		printMatrix("H", H)
+		if debug {
+			fmt.Println("Step 3")
+			printMatrix("H", H)
+		}
 		// Step 4
-		fmt.Println("Step 4")
+		// Perform block reduction on H, simultaneously updating y, A and B:
+		//
+		// For i := m+1 to n:
+		//     for j := min(i−1, m+1) to 1 step −1:
+		//         t := nint(Hij/Hjj);
+		//         yj := yj + t * yi;
+		//         for k := 1 to j:
+		//             Hik := Hik − tHjk
+		//         endfor;
+		//         for k := 1 to n:
+		//             Aik := Aik −tAjk
+		//             Bkj := Bkj +tBki
+		//         endfor
+		//     endfor
+		// endfor.
 		for i := m + 1; i <= n; i++ {
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
@@ -377,9 +477,22 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				}
 			}
 		}
-		printMatrix("A", A)
-		printMatrix("B", B)
-		printMatrix("H", H)
+		if debug {
+			fmt.Println("Step 4")
+			printMatrix("A", A)
+			printMatrix("B", B)
+			printMatrix("H", H)
+		}
+
+		// Step 6
+		//
+		// Termination test: If the largest entry of A exceeds
+		// the level of numeric precision used, then precision
+		// is exhausted. If the smallest entry of the y vector
+		// is less than the detection threshold, a relation
+		// has been detected and is given in the corresponding
+		// column of B.
+		//
 		// Until a relation is found, the error typically decreases
 		// slowly (e.g. a factor 1-10) with each step TODO: we could
 		// compare err from two successive iterations. If there is a
@@ -389,6 +502,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		var best_err fp.FixedPoint
 		best_err.SetInt64(env, int64(maxcoeff))
 		for i := 1; i <= n; i++ {
+			// FIXME what if there is more than one value
+			// of |y| < tol?
 			var err fp.FixedPoint
 			err.Abs(&y[i])
 			// Maybe we are done?
@@ -397,9 +512,13 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				// FIXME use big.Int here?
 				maxc := int64(0)
 				for j := 1; j <= n; j++ {
-					fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
+					if debug {
+						fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
+					}
 					t := B[j][i].RoundInt64()
-					fmt.Printf("vec[%d]=%d\n", j-1, t)
+					if debug {
+						fmt.Printf("vec[%d]=%d\n", j-1, t)
+					}
 					vec[j-1] = t
 					if t < 0 {
 						t = -t
@@ -408,7 +527,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 						maxc = t
 					}
 				}
-				fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
+				if debug {
+					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
+				}
 				if maxc < maxcoeff {
 					if verbose {
 						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
@@ -420,6 +541,14 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				best_err = err
 			}
 		}
+		// Step 5
+		//
+		// Norm bound: Compute M := 1/maxj |Hj|, where Hj
+		// denotes the j-th row of H.
+		//
+		// Then there can exist no relation vector whose
+		// Euclidean norm is less than M.
+		//
 		// Calculate a lower bound for the norm. We could do this
 		// more exactly (using the Euclidean norm) but there is probably
 		// no practical benefit.
