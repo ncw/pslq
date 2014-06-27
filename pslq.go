@@ -11,11 +11,10 @@ package pslq
 
 import (
 	"errors"
+	"fmt"
+	"fp"
 	"log"
 	"math/big"
-
-	fp "fixedpoint"
-	"fmt"
 )
 
 const debug = false

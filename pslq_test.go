@@ -1,12 +1,11 @@
 package pslq
 
 import (
+	"fmt"
+	"fp"
 	"math"
 	"math/big"
 	"testing"
-
-	fp "fixedpoint"
-	"fmt"
 )
 
 func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
