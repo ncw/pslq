@@ -43,10 +43,10 @@ func newMatrix(rows, cols int) [][]fp.FixedPoint {
 }
 
 // Make a new matrix with that many rows and that many cols
-func newIntMatrix(rows, cols int) [][]big.Int {
-	M := make([][]big.Int, rows)
+func newInt64Matrix(rows, cols int) [][]int64 {
+	M := make([][]int64, rows)
 	for i := 0; i < cols; i++ {
-		M[i] = make([]big.Int, cols)
+		M[i] = make([]int64, cols)
 	}
 	return M
 }
@@ -63,11 +63,11 @@ func printMatrix(name string, X [][]fp.FixedPoint) {
 }
 
 // Print a matrix
-func printIntMatrix(name string, X [][]big.Int) {
+func printInt64Matrix(name string, X [][]int64) {
 	n := len(X) - 1
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, &X[i][j])
+			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, X[i][j])
 		}
 		fmt.Printf("\n")
 	}
@@ -105,9 +105,9 @@ func printVector(name string, x []fp.FixedPoint) {
 // arithmetic, since this is significantly (about 7x) faster.
 //
 // prec is the number of bits of precision each fp.FixedPoint has
-func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
-	if maxcoeff == nil {
-		maxcoeff = big.NewInt(1000)
+func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps int, verbose bool) ([]int64, error) {
+	if maxcoeff == 0 {
+		maxcoeff = 1000
 	}
 	if maxsteps == 0 {
 		maxsteps = 100
@@ -149,7 +149,9 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 	_100 := env.NewInt(100)
 	_100big := big.NewInt(100)
 	var maxcoeff_fp fp.FixedPoint
-	maxcoeff_fp.SetBigInt(env, maxcoeff)
+	maxcoeff_fp.SetInt64(env, maxcoeff)
+	var maxcoeff_big big.Int
+	maxcoeff_big.SetInt64(maxcoeff)
 
 	// Temporary variables
 	tmp0 := env.New()
@@ -192,8 +194,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 	if debug {
 		fmt.Printf("γ = %d\n", &γ)
 	}
-	A := newIntMatrix(n+1, n+1)
-	B := newIntMatrix(n+1, n+1)
+	A := newInt64Matrix(n+1, n+1)
+	B := newInt64Matrix(n+1, n+1)
 	H := newMatrix(n+1, n+1)
 	// Initialization Step 1
 	//
@@ -201,18 +203,18 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
 			if i == j {
-				A[i][j].SetInt64(1)
-				B[i][j].SetInt64(1)
+				A[i][j] = 1
+				B[i][j] = 1
 			} else {
-				A[i][j].SetInt64(0)
-				B[i][j].SetInt64(0)
+				A[i][j] = 0
+				B[i][j] = 0
 			}
 			H[i][j].SetInt64(env, 0)
 		}
 	}
 	if debug {
-		printIntMatrix("A", A)
-		printIntMatrix("B", B)
+		printInt64Matrix("A", A)
+		printInt64Matrix("B", B)
 		printMatrix("H", H)
 	}
 	// Initialization Step 2
@@ -318,15 +320,15 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 	//     endfor
 	// endfor
 	for i := 2; i <= n; i++ {
-		var T, Tmp0 big.Int
 		for j := i - 1; j > 0; j-- {
 			//t = floor(H[i][j]/H[j,j] + 0.5)
+			var t int64
 			if H[j][j].Sign() != 0 {
 				tmp0.Div(&H[i][j], &H[j][j])
 				// FIXME div is 1 different in py - temp for matching up
 				one := big.NewInt(1)         // FIXME
 				tmp0.Int.Sub(&tmp0.Int, one) // FIXME
-				tmp0.RoundBigInt(&T)
+				t = tmp0.RoundInt64()
 			} else {
 				//t = 0
 				continue
@@ -336,36 +338,32 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 				fmt.Printf("H[j][j]=%d\n", &H[j][j])
 				fmt.Printf("tmp=%d\n", &tmp0.Int)
 				fmt.Printf("tmp=%d\n", tmp0)
-				fmt.Printf("t=%d\n", &T)
+				fmt.Printf("t=%d\n", t)
 			}
 			// y[j] = y[j] + (t * y[i] >> prec)
-			tmp0.MulBigInt(&y[i], &T)
+			tmp0.MulInt64(&y[i], t)
 			y[j].Add(&y[j], tmp0)
 			for k := 1; k <= j; k++ {
 				// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-				tmp0.MulBigInt(&H[j][k], &T)
+				tmp0.MulInt64(&H[j][k], t)
 				H[i][k].Sub(&H[i][k], tmp0)
 			}
 			for k := 1; k <= n; k++ {
-				// A[i][k] = A[i][k] - (t * A[j][k] >> prec)
-				Tmp0.Mul(&T, &A[j][k])
-				A[i][k].Sub(&A[i][k], &Tmp0)
-				// B[k][j] = B[k][j] + (t * B[k][i] >> prec)
-				Tmp0.Mul(&T, &B[k][i])
-				B[k][j].Add(&B[k][j], &Tmp0)
+				A[i][k] -= t * A[j][k]
+				B[k][j] += t * B[k][i]
 			}
 		}
 	}
 	if debug {
 		fmt.Println("Init Step 4")
-		printIntMatrix("A", A)
-		printIntMatrix("B", B)
+		printInt64Matrix("A", A)
+		printInt64Matrix("B", B)
 		printMatrix("H", H)
 	}
 	// Main algorithm
 	var REP int
 	var norm big.Int
-	vec := make([]big.Int, n)
+	vec := make([]int64, n)
 	for REP = 0; REP < maxsteps; REP++ {
 		// Step 1
 		//
@@ -409,8 +407,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 		if debug {
 			fmt.Println("Step 2")
 			printVector("y", y)
-			printIntMatrix("A", A)
-			printIntMatrix("B", B)
+			printInt64Matrix("A", A)
+			printInt64Matrix("B", B)
 			printMatrix("H", H)
 		}
 		// Step 3
@@ -476,36 +474,32 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 		//     endfor
 		// endfor.
 		for i := m + 1; i <= n; i++ {
-			var T, Tmp0 big.Int
+			var t int64
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
 					// Precision probably exhausted
 					break
 				}
 				tmp0.Div(&H[i][j], &H[j][j])
-				tmp0.RoundBigInt(&T)
+				t = tmp0.RoundInt64()
 				// y[j] = y[j] + ((t * y[i]) >> prec)
-				tmp0.MulBigInt(&y[i], &T)
+				tmp0.MulInt64(&y[i], t)
 				y[j].Add(&y[j], tmp0)
 				for k := 1; k <= j; k++ {
 					// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-					tmp0.MulBigInt(&H[j][k], &T)
+					tmp0.MulInt64(&H[j][k], t)
 					H[i][k].Sub(&H[i][k], tmp0)
 				}
 				for k := 1; k <= n; k++ {
-					// A[i][k] = A[i][k] - (t * A[j][k] >> prec)
-					Tmp0.Mul(&T, &A[j][k])
-					A[i][k].Sub(&A[i][k], &Tmp0)
-					// B[k][j] = B[k][j] + (t * B[k][i] >> prec)
-					Tmp0.Mul(&T, &B[k][i])
-					B[k][j].Add(&B[k][j], &Tmp0)
+					A[i][k] -= t * A[j][k]
+					B[k][j] += t * B[k][i]
 				}
 			}
 		}
 		if debug {
 			fmt.Println("Step 4")
-			printIntMatrix("A", A)
-			printIntMatrix("B", B)
+			printInt64Matrix("A", A)
+			printInt64Matrix("B", B)
 			printMatrix("H", H)
 		}
 
@@ -534,8 +528,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 			// Maybe we are done?
 			if err.Cmp(tol) < 0 {
 				// We are done if the coefficients are acceptable
-				// FIXME use big.Int here?
-				var maxc big.Int
+				var maxc int64
 				for j := 1; j <= n; j++ {
 					if debug {
 						fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
@@ -545,16 +538,17 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 						fmt.Printf("vec[%d]=%d\n", j-1, t)
 					}
 					vec[j-1] = t
-					var absT big.Int
-					absT.Abs(&t)
-					if t.Cmp(&maxc) > 0 {
-						maxc.Set(&absT)
+					if t < 0 {
+						t = -t
+					}
+					if t > maxc {
+						maxc = t
 					}
 				}
 				if debug {
 					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
 				}
-				if maxc.Cmp(maxcoeff) < 0 {
+				if maxc < maxcoeff {
 					if verbose {
 						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
 					}
@@ -586,7 +580,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 				}
 			}
 		}
-		norm.Set(maxcoeff)
+		norm.SetInt64(maxcoeff)
 		if recnorm.Sign() != 0 {
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
 			tmp0.Div(_1, &recnorm)
@@ -596,7 +590,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxste
 		if verbose {
 			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, &norm)
 		}
-		if norm.Cmp(maxcoeff) >= 0 {
+		if norm.Cmp(&maxcoeff_big) >= 0 {
 			break
 		}
 	}

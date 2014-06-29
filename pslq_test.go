@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"fp"
 	"math"
-	"math/big"
 	"testing"
 )
 
-func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
+func compareResult(t *testing.T, actual []int64, expected ...int64) {
 	if len(actual) < len(expected) {
 		t.Fatalf("lengths wrong of answers got %d expecting %d", len(actual), len(expected))
 	}
@@ -20,8 +19,7 @@ func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
 			e = expected[i]
 
 		}
-		tmp := big.NewInt(e)
-		if actual[i].Cmp(tmp) != 0 {
+		if actual[i] != e {
 			t.Errorf("actual[%d]=%d != expected[%d]=%d", i, &actual[i], i, e)
 		}
 	}
@@ -39,7 +37,7 @@ func TestPslqSimple(t *testing.T) {
 	in[0].SetInt64(env, 1)
 	in[1].SetInt64(env, -2)
 
-	out, err := Pslq(env, in, nil, 0, true)
+	out, err := Pslq(env, in, 0, 0, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -60,7 +58,7 @@ func TestPslq2(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, nil, 0, true)
+	out, err := Pslq(env, in, 0, 0, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -87,7 +85,7 @@ func TestPslq3(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, nil, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -130,7 +128,7 @@ func TestPslq4(t *testing.T) {
 		}
 		fmt.Printf("in[%d] = %d\n", i, &in[i])
 	}
-	out, err := Pslq(env, in, nil, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -183,7 +181,7 @@ func TestPslq5(t *testing.T) {
 	acot(env, 8, &in[5])
 	acot(env, 9, &in[6])
 	acot(env, 10, &in[7])
-	out, err := Pslq(env, in, nil, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -198,7 +196,7 @@ func TestPslq6(t *testing.T) {
 	in[0].SetFloat64(env, math.Pi/4)
 	acot(env, 5, &in[1])
 	acot(env, 239, &in[2])
-	out, err := Pslq(env, in, nil, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -215,7 +213,7 @@ func TestPslq7(t *testing.T) {
 	acot(env, 57, &in[2])
 	acot(env, 239, &in[3])
 	acot(env, 110443, &in[4])
-	out, err := Pslq(env, in, nil, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -235,7 +233,7 @@ func TestPslq8(t *testing.T) {
 		}
 		fmt.Printf("in[%d] = %d\n", i, &in[i])
 	}
-	out, err := Pslq(env, in, nil, 10000, true)
+	out, err := Pslq(env, in, 0, 10000, true)
 	if err != nil {
 		t.Error("Got error", err)
 	}
