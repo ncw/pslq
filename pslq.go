@@ -1,6 +1,14 @@
 // Implens PSLQ algorithm for iteger releation detection.
 package pslq
 
+// Try raising internal precision so that we can eliminate false
+// positives.  Using twice the input precision should emulate floating
+// point arithmetic pretty well.
+
+// Make an adaptive Pslq which raises precision
+
+// Can we detect false positives?
+
 // FIXME A isn't used in the result?
 //
 // Mising one of the terminaton tests: If the largest entry of A
@@ -598,5 +606,5 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
 		log.Printf("Could not find an integer relation. Norm bound: %d", &norm)
 	}
-	return nil, nil
+	return nil, errors.New("could not find an integer relation")
 }
