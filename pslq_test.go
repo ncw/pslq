@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+const verbose = false
+
 func compareResult(t *testing.T, actual []int64, expected ...int64) {
 	if len(actual) < len(expected) {
 		t.Fatalf("lengths wrong of answers got %d expecting %d", len(actual), len(expected))
@@ -37,11 +39,13 @@ func TestPslqSimple(t *testing.T) {
 	in[0].SetInt64(env, 1)
 	in[1].SetInt64(env, -2)
 
-	out, err := Pslq(env, in, 0, 0, true)
+	out, err := Pslq(env, in, 0, 0, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 2, 1)
 }
 
@@ -58,11 +62,13 @@ func TestPslq2(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, 0, 0, true)
+	out, err := Pslq(env, in, 0, 0, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 7, -21, -4, 0)
 }
 
@@ -85,11 +91,13 @@ func TestPslq3(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, 0, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 7, -21, -4, 0, 0, 0, 0, 0, 0, 0)
 }
 
@@ -126,14 +134,72 @@ func TestPslq4(t *testing.T) {
 		} else {
 			bbp(env, 16, 8, int64(i), &in[i])
 		}
-		fmt.Printf("in[%d] = %d\n", i, &in[i])
+		if verbose {
+			fmt.Printf("in[%d] = %d\n", i, &in[i])
+		}
 	}
-	out, err := Pslq(env, in, 0, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 1, -4, 0, 0, 2, 1, 1, 0)
+}
+
+func TestPslq4a(t *testing.T) {
+	env := fp.NewEnvironment(512)
+
+	in := make([]fp.FixedPoint, 5)
+	for i := range in {
+		if i == 0 {
+			pi(env, &in[i])
+		} else {
+			bbp(env, 10, 5, int64(i), &in[i])
+		}
+		if verbose {
+			fmt.Printf("in[%d] = %d\n", i, &in[i])
+		}
+	}
+	out, err := Pslq(env, in, 1E18, 1000, verbose)
+	if err == nil || err.Error() != "could not find an integer relation" {
+		t.Errorf("Wrong error %v", err)
+	}
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
+	if out != nil {
+		t.Errorf("Expecting nil out, got %v", out)
+	}
+}
+
+// out = [44 120 -359 -665 431 -138 248 -166 146 -22 -5 20 339 -563 -606 -89 391 201 351 -31 -5 588 235 -663 183 646 -130 -73 11 167 -31 -788 666 -645 580 -15 -145 -523 -519 532 -169 686 43 80 -387 -234 560 486 285 -318]
+
+func TOOLONGTestPslq4b(t *testing.T) {
+	env := fp.NewEnvironment(1024 * 2)
+
+	in := make([]fp.FixedPoint, 50)
+	for i := range in {
+		if i == 0 {
+			pi(env, &in[i])
+		} else {
+			bbp(env, 100, 50, int64(i), &in[i])
+		}
+		if verbose {
+			fmt.Printf("in[%d] = %d\n", i, &in[i])
+		}
+	}
+	out, err := Pslq(env, in, 1E18, 1E6, verbose)
+	if err == nil || err.Error() != "could not find an integer relation" {
+		t.Errorf("Wrong error %v", err)
+	}
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
+	if out != nil {
+		t.Errorf("Expecting nil out, got %v", out)
+	}
 }
 
 // Returns acot(x) in result
@@ -181,11 +247,13 @@ func TestPslq5(t *testing.T) {
 	acot(env, 8, &in[5])
 	acot(env, 9, &in[6])
 	acot(env, 10, &in[7])
-	out, err := Pslq(env, in, 0, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 1, -8, 0, 0, 4, 0, 0, 0)
 }
 
@@ -196,11 +264,13 @@ func TestPslq6(t *testing.T) {
 	in[0].SetFloat64(env, math.Pi/4)
 	acot(env, 5, &in[1])
 	acot(env, 239, &in[2])
-	out, err := Pslq(env, in, 0, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 1, -4, 1)
 }
 
@@ -213,11 +283,13 @@ func TestPslq7(t *testing.T) {
 	acot(env, 57, &in[2])
 	acot(env, 239, &in[3])
 	acot(env, 110443, &in[4])
-	out, err := Pslq(env, in, 0, 1000, true)
+	out, err := Pslq(env, in, 0, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 1, -12, -32, 5, -12)
 }
 
@@ -231,12 +303,16 @@ func TestPslq8(t *testing.T) {
 		} else {
 			bbp(env, 16, 8, int64(i), &in[i])
 		}
-		fmt.Printf("in[%d] = %d\n", i, &in[i])
+		if verbose {
+			fmt.Printf("in[%d] = %d\n", i, &in[i])
+		}
 	}
-	out, err := Pslq(env, in, 0, 10000, true)
+	out, err := Pslq(env, in, 0, 10000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	fmt.Printf("out = %v\n", out)
+	if verbose {
+		fmt.Printf("out = %v\n", out)
+	}
 	compareResult(t, out, 1, -4, 0, 0, 2, 1, 1)
 }
