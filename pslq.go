@@ -1,19 +1,7 @@
 // Implens PSLQ algorithm for iteger releation detection.
 package pslq
 
-// Try raising internal precision so that we can eliminate false
-// positives.  Using twice the input precision should emulate floating
-// point arithmetic pretty well.
-
 // Make an adaptive Pslq which raises precision
-
-// Can we detect false positives?
-
-// FIXME A isn't used in the result?
-//
-// Mising one of the terminaton tests: If the largest entry of A
-// exceeds the level of numeric precision used, then precision is
-// exhausted.
 
 // FIXME where did / 100s come from?
 
@@ -26,6 +14,18 @@ import (
 )
 
 const debug = false
+
+// Errors
+var (
+	ErrorPrecisionExhausted    = errors.New("precision exhausted")
+	ErrorBadArguments          = errors.New("bad arguments: need at least 2 items")
+	ErrorPrecisionTooLow       = errors.New("precision of input is too low")
+	ErrorToleranceRoundsToZero = errors.New("tolerance is zero")
+	ErrorNonZeroArguments      = errors.New("all input numbers must be non zero")
+	ErrorArgumentTooSmall      = errors.New("one or more arguments are too small")
+	ErrorNoRelationFound       = errors.New("could not find an integer relation")
+	ErrorIterationsExceeded    = errors.New("ran out of iterations looking for relation")
+)
 
 func max(a, b int) int {
 	if a >= b {
@@ -51,10 +51,10 @@ func newMatrix(rows, cols int) [][]fp.FixedPoint {
 }
 
 // Make a new matrix with that many rows and that many cols
-func newInt64Matrix(rows, cols int) [][]int64 {
-	M := make([][]int64, rows)
+func newBigIntMatrix(rows, cols int) [][]big.Int {
+	M := make([][]big.Int, rows)
 	for i := 0; i < cols; i++ {
-		M[i] = make([]int64, cols)
+		M[i] = make([]big.Int, cols)
 	}
 	return M
 }
@@ -71,11 +71,11 @@ func printMatrix(name string, X [][]fp.FixedPoint) {
 }
 
 // Print a matrix
-func printInt64Matrix(name string, X [][]int64) {
+func printBigIntMatrix(name string, X [][]big.Int) {
 	n := len(X) - 1
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, X[i][j])
+			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, &X[i][j])
 		}
 		fmt.Printf("\n")
 	}
@@ -113,9 +113,9 @@ func printVector(name string, x []fp.FixedPoint) {
 // arithmetic, since this is significantly (about 7x) faster.
 //
 // prec is the number of bits of precision each fp.FixedPoint has
-func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps int, verbose bool) ([]int64, error) {
-	if maxcoeff == 0 {
-		maxcoeff = 1000
+func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
+	if maxcoeff == nil {
+		maxcoeff = big.NewInt(1000)
 	}
 	if maxsteps == 0 {
 		maxsteps = 100
@@ -123,22 +123,19 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 
 	n := len(x)
 	if n <= 1 {
-		return nil, errors.New("need at least 2 items")
+		return nil, ErrorBadArguments
 	}
 
 	// At too low precision, the algorithm becomes meaningless
-	if startEnv.Prec < 53 {
-		return nil, errors.New("prec too low")
+	if env.Prec < 64 {
+		return nil, ErrorPrecisionTooLow
 	}
 
-	if verbose && int(startEnv.Prec)/max(2, int(n)) < 5 {
+	if verbose && int(env.Prec)/max(2, int(n)) < 5 {
 		log.Printf("Warning: precision for PSLQ may be too low")
 	}
 
-	target := (startEnv.Prec * 3) / 4
-
-	extra := uint(60) // was 60 but made it 2**n FIXME make 64 again
-	env := fp.NewEnvironment(startEnv.Prec + extra)
+	target := (env.Prec * 3) / 4
 
 	// FIXME make it so you can pass tol in
 	tol := env.NewInt(1)
@@ -149,7 +146,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	}
 
 	if tol.Sign() == 0 {
-		return nil, errors.New("tol must be > 0 here")
+		return nil, ErrorToleranceRoundsToZero
 	}
 
 	// Useful constants
@@ -157,13 +154,12 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	_100 := env.NewInt(100)
 	_100big := big.NewInt(100)
 	var maxcoeff_fp fp.FixedPoint
-	maxcoeff_fp.SetInt64(env, maxcoeff)
-	var maxcoeff_big big.Int
-	maxcoeff_big.SetInt64(maxcoeff)
+	maxcoeff_fp.SetBigInt(env, maxcoeff)
 
 	// Temporary variables
 	tmp0 := env.New()
 	tmp1 := env.New()
+	bigTmp := new(big.Int)
 
 	// Convert to fixed-point numbers. The dummy None is added so we can
 	// use 1-based indexing. (This just allows us to be consistent with
@@ -174,7 +170,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	minxFirst := true
 	for i, xk := range x {
 		p := &xNew[i+1]
-		p.Convert(env, &xk)
+		p.Set(&xk)
 		tmp0.Abs(p)
 		if minxFirst || tmp0.Cmp(minx) < 0 {
 			minxFirst = false
@@ -188,11 +184,11 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 
 	// Sanity check on magnitudes
 	if minx.Sign() == 0 {
-		return nil, errors.New("PSLQ requires a vector of nonzero numbers")
+		return nil, ErrorNonZeroArguments
 	}
 	tmp0.Div(tol, _100)
 	if minx.Cmp(tmp0) < 0 { //  minx < tol/100
-		return nil, errors.New("STOPPING: (one number is too small)")
+		return nil, ErrorArgumentTooSmall
 	}
 
 	tmp0.SetInt64(env, 4)
@@ -202,8 +198,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	if debug {
 		fmt.Printf("γ = %d\n", &γ)
 	}
-	A := newInt64Matrix(n+1, n+1)
-	B := newInt64Matrix(n+1, n+1)
+	A := newBigIntMatrix(n+1, n+1)
+	B := newBigIntMatrix(n+1, n+1)
 	H := newMatrix(n+1, n+1)
 	// Initialization Step 1
 	//
@@ -211,18 +207,18 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
 			if i == j {
-				A[i][j] = 1
-				B[i][j] = 1
+				A[i][j].SetInt64(1)
+				B[i][j].SetInt64(1)
 			} else {
-				A[i][j] = 0
-				B[i][j] = 0
+				A[i][j].SetInt64(0)
+				B[i][j].SetInt64(0)
 			}
 			H[i][j].SetInt64(env, 0)
 		}
 	}
 	if debug {
-		printInt64Matrix("A", A)
-		printInt64Matrix("B", B)
+		printBigIntMatrix("A", A)
+		printBigIntMatrix("B", B)
 		printMatrix("H", H)
 	}
 	// Initialization Step 2
@@ -330,13 +326,13 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 	for i := 2; i <= n; i++ {
 		for j := i - 1; j > 0; j-- {
 			//t = floor(H[i][j]/H[j,j] + 0.5)
-			var t int64
+			var t big.Int
 			if H[j][j].Sign() != 0 {
 				tmp0.Div(&H[i][j], &H[j][j])
 				// FIXME div is 1 different in py - temp for matching up
 				one := big.NewInt(1)         // FIXME
 				tmp0.Int.Sub(&tmp0.Int, one) // FIXME
-				t = tmp0.RoundInt64()
+				tmp0.RoundBigInt(&t)
 			} else {
 				//t = 0
 				continue
@@ -349,29 +345,31 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				fmt.Printf("t=%d\n", t)
 			}
 			// y[j] = y[j] + (t * y[i] >> prec)
-			tmp0.MulInt64(&y[i], t)
+			tmp0.MulBigInt(&y[i], &t)
 			y[j].Add(&y[j], tmp0)
 			for k := 1; k <= j; k++ {
 				// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-				tmp0.MulInt64(&H[j][k], t)
+				tmp0.MulBigInt(&H[j][k], &t)
 				H[i][k].Sub(&H[i][k], tmp0)
 			}
 			for k := 1; k <= n; k++ {
-				A[i][k] -= t * A[j][k]
-				B[k][j] += t * B[k][i]
+				bigTmp.Mul(&t, &A[j][k])
+				A[i][k].Sub(&A[i][k], bigTmp)
+				bigTmp.Mul(&t, &B[k][i])
+				B[k][j].Add(&B[k][j], bigTmp)
 			}
 		}
 	}
 	if debug {
 		fmt.Println("Init Step 4")
-		printInt64Matrix("A", A)
-		printInt64Matrix("B", B)
+		printBigIntMatrix("A", A)
+		printBigIntMatrix("B", B)
 		printMatrix("H", H)
 	}
 	// Main algorithm
 	var REP int
 	var norm big.Int
-	vec := make([]int64, n)
+	vec := make([]big.Int, n)
 	for REP = 0; REP < maxsteps; REP++ {
 		// Step 1
 		//
@@ -415,8 +413,8 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		if debug {
 			fmt.Println("Step 2")
 			printVector("y", y)
-			printInt64Matrix("A", A)
-			printInt64Matrix("B", B)
+			printBigIntMatrix("A", A)
+			printBigIntMatrix("B", B)
 			printMatrix("H", H)
 		}
 		// Step 3
@@ -482,32 +480,34 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		//     endfor
 		// endfor.
 		for i := m + 1; i <= n; i++ {
-			var t int64
+			var t big.Int
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
 					// Precision probably exhausted
 					break
 				}
 				tmp0.Div(&H[i][j], &H[j][j])
-				t = tmp0.RoundInt64()
+				tmp0.RoundBigInt(&t)
 				// y[j] = y[j] + ((t * y[i]) >> prec)
-				tmp0.MulInt64(&y[i], t)
+				tmp0.MulBigInt(&y[i], &t)
 				y[j].Add(&y[j], tmp0)
 				for k := 1; k <= j; k++ {
 					// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-					tmp0.MulInt64(&H[j][k], t)
+					tmp0.MulBigInt(&H[j][k], &t)
 					H[i][k].Sub(&H[i][k], tmp0)
 				}
 				for k := 1; k <= n; k++ {
-					A[i][k] -= t * A[j][k]
-					B[k][j] += t * B[k][i]
+					bigTmp.Mul(&t, &A[j][k])
+					A[i][k].Sub(&A[i][k], bigTmp)
+					bigTmp.Mul(&t, &B[k][i])
+					B[k][j].Add(&B[k][j], bigTmp)
 				}
 			}
 		}
 		if debug {
 			fmt.Println("Step 4")
-			printInt64Matrix("A", A)
-			printInt64Matrix("B", B)
+			printBigIntMatrix("A", A)
+			printBigIntMatrix("B", B)
 			printMatrix("H", H)
 		}
 
@@ -526,6 +526,26 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		// large drop (several orders of magnitude), that indicates a
 		// "high quality" relation was detected. Reporting this to
 		// the user somehow might be useful.
+
+		maxAPrecision := 0
+		for i := 1; i <= n; i++ {
+			for j := 1; j <= n; j++ {
+				precision := A[i][j].BitLen()
+				if precision > maxAPrecision {
+					maxAPrecision = precision
+				}
+			}
+		}
+		if debug {
+			log.Printf("Max A precision = %d, precision = %d, tolerance %d, ratio = %.3f\n", maxAPrecision, env.Prec, target, float64(maxAPrecision)/float64(target))
+		}
+		if float64(maxAPrecision)/float64(target) > 0.85 {
+			if verbose {
+				log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
+			}
+			return nil, ErrorPrecisionExhausted
+		}
+
 		var best_err fp.FixedPoint
 		best_err.Set(&maxcoeff_fp)
 		for i := 1; i <= n; i++ {
@@ -536,7 +556,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 			// Maybe we are done?
 			if err.Cmp(tol) < 0 {
 				// We are done if the coefficients are acceptable
-				var maxc int64
+				var maxc big.Int
 				for j := 1; j <= n; j++ {
 					if debug {
 						fmt.Printf("vec[%d]=%d\n", j-1, &B[j][i])
@@ -546,17 +566,17 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 						fmt.Printf("vec[%d]=%d\n", j-1, t)
 					}
 					vec[j-1] = t
-					if t < 0 {
-						t = -t
+					if t.Sign() < 0 {
+						t.Neg(&t)
 					}
-					if t > maxc {
-						maxc = t
+					if t.Cmp(&maxc) > 0 {
+						maxc.Set(&t)
 					}
 				}
 				if debug {
 					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
 				}
-				if maxc < maxcoeff {
+				if maxc.Cmp(maxcoeff) < 0 {
 					if verbose {
 						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
 					}
@@ -588,7 +608,7 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 				}
 			}
 		}
-		norm.SetInt64(maxcoeff)
+		norm.Set(maxcoeff)
 		if recnorm.Sign() != 0 {
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
 			tmp0.Div(_1, &recnorm)
@@ -598,13 +618,17 @@ func Pslq(startEnv *fp.Environment, x []fp.FixedPoint, maxcoeff int64, maxsteps 
 		if verbose {
 			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, &norm)
 		}
-		if norm.Cmp(&maxcoeff_big) >= 0 {
-			break
+		if norm.Cmp(maxcoeff) >= 0 {
+			if verbose {
+				log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
+				log.Printf("Could not find an integer relation. Norm bound: %d", &norm)
+			}
+			return nil, ErrorNoRelationFound
 		}
 	}
 	if verbose {
 		log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
 		log.Printf("Could not find an integer relation. Norm bound: %d", &norm)
 	}
-	return nil, errors.New("could not find an integer relation")
+	return nil, ErrorIterationsExceeded
 }

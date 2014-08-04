@@ -1,28 +1,28 @@
 package pslq
 
 import (
-	"fmt"
 	"fp"
 	"math"
+	"math/big"
+	"math/rand"
 	"testing"
 )
 
 const verbose = false
 
-func compareResult(t *testing.T, actual []int64, expected ...int64) {
+func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
 	if len(actual) < len(expected) {
 		t.Fatalf("lengths wrong of answers got %d expecting %d", len(actual), len(expected))
 	}
 	for i := range actual {
-		var e int64
+		var e big.Int
 		if i >= len(expected) {
-			e = 0
+			e.SetInt64(0)
 		} else {
-			e = expected[i]
-
+			e.SetInt64(expected[i])
 		}
-		if actual[i] != e {
-			t.Errorf("actual[%d]=%d != expected[%d]=%d", i, &actual[i], i, e)
+		if actual[i].Cmp(&e) != 0 {
+			t.Errorf("actual[%d]=%d != expected[%d]=%d", i, &actual[i], i, &e)
 		}
 	}
 }
@@ -32,25 +32,25 @@ func compareResult(t *testing.T, actual []int64, expected ...int64) {
 // assert pslq([2,1]) == [1, -2]
 
 func TestPslqSimple(t *testing.T) {
-	env := fp.NewEnvironment(63)
+	env := fp.NewEnvironment(64)
 	//one := float64(1<<60)
 
 	in := make([]fp.FixedPoint, 2)
 	in[0].SetInt64(env, 1)
 	in[1].SetInt64(env, -2)
 
-	out, err := Pslq(env, in, 0, 0, verbose)
+	out, err := Pslq(env, in, nil, 0, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 2, 1)
 }
 
 func TestPslq2(t *testing.T) {
-	env := fp.NewEnvironment(63)
+	env := fp.NewEnvironment(64)
 
 	inFloat := []float64{
 		3*math.Pi + 4*math.E/7,
@@ -62,18 +62,18 @@ func TestPslq2(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, 0, 0, verbose)
+	out, err := Pslq(env, in, nil, 0, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 7, -21, -4, 0)
 }
 
 func TestPslq3(t *testing.T) {
-	env := fp.NewEnvironment(63)
+	env := fp.NewEnvironment(64)
 
 	inFloat := []float64{
 		3*math.Pi + 4*math.E/7,
@@ -91,12 +91,12 @@ func TestPslq3(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetFloat64(env, inFloat[i])
 	}
-	out, err := Pslq(env, in, 0, 1000, verbose)
+	out, err := Pslq(env, in, nil, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 7, -21, -4, 0, 0, 0, 0, 0, 0, 0)
 }
@@ -135,21 +135,31 @@ func TestPslq4(t *testing.T) {
 			bbp(env, 16, 8, int64(i), &in[i])
 		}
 		if verbose {
-			fmt.Printf("in[%d] = %d\n", i, &in[i])
+			t.Logf("in[%d] = %d\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(env, in, 0, 1000, verbose)
+	out, err := Pslq(env, in, nil, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -4, 0, 0, 2, 1, 1, 0)
 }
 
-func TestPslq4a(t *testing.T) {
-	env := fp.NewEnvironment(512)
+// Print a vector
+func printBigIntVector(t *testing.T, name string, x []big.Int) {
+	for i := range x {
+		t.Logf("%s[%d] = %d\n", name, i, &x[i])
+	}
+}
+
+func piFailTest(t *testing.T, prec uint, iterations int, logMaxCoeff int64, expectedError error) {
+	env := fp.NewEnvironment(prec)
+	_10 := big.NewInt(10)
+	maxCoeff := big.NewInt(logMaxCoeff)
+	maxCoeff.Exp(_10, maxCoeff, nil)
 
 	in := make([]fp.FixedPoint, 5)
 	for i := range in {
@@ -159,24 +169,64 @@ func TestPslq4a(t *testing.T) {
 			bbp(env, 10, 5, int64(i), &in[i])
 		}
 		if verbose {
-			fmt.Printf("in[%d] = %d\n", i, &in[i])
+			t.Logf("in[%d] = %d\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(env, in, 1E18, 1000, verbose)
-	if err == nil || err.Error() != "could not find an integer relation" {
-		t.Errorf("Wrong error %v", err)
+	out, err := Pslq(env, in, maxCoeff, iterations, verbose)
+	if err == nil {
+		t.Errorf("Expecting error but got none")
+	} else {
+		if expectedError != nil && err != expectedError {
+			t.Errorf("Wrong error: %v != %v", err, expectedError)
+		}
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	if out != nil {
-		t.Errorf("Expecting nil out, got %v", out)
+		t.Errorf("Expecting nil out, got")
+		t.Errorf("piFailText(prec=%d, iterations=%d, logMaxCoeff=%d) = %v\n", prec, iterations, logMaxCoeff, err)
+		printBigIntVector(t, "out", out)
+		t.Fatalf("finishing")
 	}
 }
 
+func TestPslqPiFail01(t *testing.T) { piFailTest(t, 64, 75, 0, ErrorNoRelationFound) }
+func TestPslqPiFail02(t *testing.T) { piFailTest(t, 64, 75, 3, ErrorPrecisionExhausted) }
+func TestPslqPiFail03(t *testing.T) { piFailTest(t, 128, 75, 3, ErrorIterationsExceeded) }
+func TestPslqPiFail04(t *testing.T) { piFailTest(t, 128, 150, 3, ErrorNoRelationFound) }
+func TestPslqPiFail05(t *testing.T) { piFailTest(t, 128, 300, 10, ErrorPrecisionExhausted) }
+func TestPslqPiFail06(t *testing.T) { piFailTest(t, 256, 300, 10, ErrorIterationsExceeded) }
+func TestPslqPiFail07(t *testing.T) { piFailTest(t, 256, 1E8, 10, ErrorNoRelationFound) }
+func TestPslqPiFail08(t *testing.T) { piFailTest(t, 256, 1E8, 11, ErrorPrecisionExhausted) }
+func TestPslqPiFail09(t *testing.T) { piFailTest(t, 512, 1E8, 11, ErrorNoRelationFound) }
+func TestPslqPiFail10(t *testing.T) { piFailTest(t, 512, 1E8, 22, ErrorNoRelationFound) }
+func TestPslqPiFail11(t *testing.T) { piFailTest(t, 512, 1E8, 23, ErrorPrecisionExhausted) }
+func TestPslqPiFail12(t *testing.T) { piFailTest(t, 1024, 1E8, 23, ErrorNoRelationFound) }
+func TestPslqPiFail13(t *testing.T) { piFailTest(t, 1024, 1E8, 46, ErrorNoRelationFound) }
+func TestPslqPiFail14(t *testing.T) { piFailTest(t, 1024, 1E8, 47, ErrorPrecisionExhausted) }
+func TestPslqPiFail15(t *testing.T) { piFailTest(t, 2048, 1E8, 47, ErrorNoRelationFound) }
+func TestPslqPiFail16(t *testing.T) { piFailTest(t, 2048, 1E8, 96, ErrorNoRelationFound) }
+func TestPslqPiFail17(t *testing.T) { piFailTest(t, 2048, 1E8, 97, ErrorPrecisionExhausted) }
+func TestPslqPiFail18(t *testing.T) { piFailTest(t, 2048+64, 1E8, 97, ErrorNoRelationFound) }
+
+func TestPslqPiFail20(t *testing.T) { piFailTest(t, 67, 721, 12, ErrorPrecisionExhausted) }
+
+// Run lots of tests to check we always get sensible errors and not an invalid solution
+func TestPslqPiFailRandom(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		precision := rand.Intn(512) + 64
+		iterations := rand.Intn(1000) + 64
+		logMaxCoeff := rand.Intn(28) + 2
+		piFailTest(t, uint(precision), iterations, int64(logMaxCoeff), nil)
+	}
+}
+
+// FIXME try bpp base 100 as well? and 16?
+
 // out = [44 120 -359 -665 431 -138 248 -166 146 -22 -5 20 339 -563 -606 -89 391 201 351 -31 -5 588 235 -663 183 646 -130 -73 11 167 -31 -788 666 -645 580 -15 -145 -523 -519 532 -169 686 43 80 -387 -234 560 486 285 -318]
 
-func TOOLONGTestPslq4b(t *testing.T) {
+func XXXXTestPslq4b(t *testing.T) {
 	env := fp.NewEnvironment(1024 * 2)
 
 	in := make([]fp.FixedPoint, 50)
@@ -187,15 +237,15 @@ func TOOLONGTestPslq4b(t *testing.T) {
 			bbp(env, 100, 50, int64(i), &in[i])
 		}
 		if verbose {
-			fmt.Printf("in[%d] = %d\n", i, &in[i])
+			t.Logf("in[%d] = %d\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(env, in, 1E18, 1E6, verbose)
+	out, err := Pslq(env, in, big.NewInt(1E18), 1E6, verbose)
 	if err == nil || err.Error() != "could not find an integer relation" {
 		t.Errorf("Wrong error %v", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	if out != nil {
 		t.Errorf("Expecting nil out, got %v", out)
@@ -247,12 +297,12 @@ func TestPslq5(t *testing.T) {
 	acot(env, 8, &in[5])
 	acot(env, 9, &in[6])
 	acot(env, 10, &in[7])
-	out, err := Pslq(env, in, 0, 1000, verbose)
+	out, err := Pslq(env, in, nil, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -8, 0, 0, 4, 0, 0, 0)
 }
@@ -264,12 +314,12 @@ func TestPslq6(t *testing.T) {
 	in[0].SetFloat64(env, math.Pi/4)
 	acot(env, 5, &in[1])
 	acot(env, 239, &in[2])
-	out, err := Pslq(env, in, 0, 1000, verbose)
+	out, err := Pslq(env, in, nil, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -4, 1)
 }
@@ -283,12 +333,12 @@ func TestPslq7(t *testing.T) {
 	acot(env, 57, &in[2])
 	acot(env, 239, &in[3])
 	acot(env, 110443, &in[4])
-	out, err := Pslq(env, in, 0, 1000, verbose)
+	out, err := Pslq(env, in, nil, 1000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -12, -32, 5, -12)
 }
@@ -304,15 +354,15 @@ func TestPslq8(t *testing.T) {
 			bbp(env, 16, 8, int64(i), &in[i])
 		}
 		if verbose {
-			fmt.Printf("in[%d] = %d\n", i, &in[i])
+			t.Logf("in[%d] = %d\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(env, in, 0, 10000, verbose)
+	out, err := Pslq(env, in, nil, 10000, verbose)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 	if verbose {
-		fmt.Printf("out = %v\n", out)
+		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -4, 0, 0, 2, 1, 1)
 }
