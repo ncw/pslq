@@ -222,6 +222,32 @@ func TestPslqPiFailRandom(t *testing.T) {
 	}
 }
 
+func piFailBench(b *testing.B, prec uint, iterations int, logMaxCoeff int64) {
+	env := fp.NewEnvironment(prec)
+	_10 := big.NewInt(10)
+	maxCoeff := big.NewInt(logMaxCoeff)
+	maxCoeff.Exp(_10, maxCoeff, nil)
+
+	in := make([]fp.FixedPoint, 5)
+	for i := range in {
+		if i == 0 {
+			pi(env, &in[i])
+		} else {
+			bbp(env, 10, 5, int64(i), &in[i])
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Pslq(env, in, maxCoeff, iterations, verbose)
+	}
+}
+
+func BenchmarkPslqPiFail128(b *testing.B)  { piFailBench(b, 128, 150, 3) }
+func BenchmarkPslqPiFail256(b *testing.B)  { piFailBench(b, 256, 1E8, 10) }
+func BenchmarkPslqPiFail512(b *testing.B)  { piFailBench(b, 512, 1E8, 22) }
+func BenchmarkPslqPiFail1024(b *testing.B) { piFailBench(b, 1024, 1E8, 46) }
+
 // FIXME try bpp base 100 as well? and 16?
 
 // out = [44 120 -359 -665 431 -138 248 -166 146 -22 -5 20 339 -563 -606 -89 391 201 351 -31 -5 588 235 -663 183 646 -130 -73 11 167 -31 -788 666 -645 580 -15 -145 -523 -519 532 -169 686 43 80 -387 -234 560 486 285 -318]
