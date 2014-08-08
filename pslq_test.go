@@ -156,6 +156,9 @@ func printBigIntVector(t *testing.T, name string, x []big.Int) {
 }
 
 func piFailTest(t *testing.T, prec uint, iterations int, logMaxCoeff int64, expectedError error) {
+	if prec >= 2048 && testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
 	env := fp.NewEnvironment(prec)
 	_10 := big.NewInt(10)
 	maxCoeff := big.NewInt(logMaxCoeff)
@@ -214,7 +217,11 @@ func TestPslqPiFail20(t *testing.T) { piFailTest(t, 67, 721, 12, ErrorPrecisionE
 
 // Run lots of tests to check we always get sensible errors and not an invalid solution
 func TestPslqPiFailRandom(t *testing.T) {
-	for i := 0; i < 100; i++ {
+	iterations := 100
+	if testing.Short() {
+		iterations = 10
+	}
+	for i := 0; i < iterations; i++ {
 		precision := rand.Intn(512) + 64
 		iterations := rand.Intn(1000) + 64
 		logMaxCoeff := rand.Intn(28) + 2
