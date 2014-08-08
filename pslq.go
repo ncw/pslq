@@ -17,7 +17,7 @@ var (
 	ErrorBadArguments          = errors.New("bad arguments: need at least 2 items")
 	ErrorPrecisionTooLow       = errors.New("precision of input is too low")
 	ErrorToleranceRoundsToZero = errors.New("tolerance is zero")
-	ErrorNonZeroArguments      = errors.New("all input numbers must be non zero")
+	ErrorZeroArguments         = errors.New("all input numbers must be non zero")
 	ErrorArgumentTooSmall      = errors.New("one or more arguments are too small")
 	ErrorNoRelationFound       = errors.New("could not find an integer relation")
 	ErrorIterationsExceeded    = errors.New("ran out of iterations looking for relation")
@@ -180,7 +180,7 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 
 	// Sanity check on magnitudes
 	if minx.Sign() == 0 {
-		return nil, ErrorNonZeroArguments
+		return nil, ErrorZeroArguments
 	}
 	tmp0.Rsh(tol, 7)
 	if minx.Cmp(tmp0) < 0 { //  minx < tol/128

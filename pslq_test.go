@@ -27,6 +27,62 @@ func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
 	}
 }
 
+func TestErrorBadArguments(t *testing.T) {
+	env := fp.NewEnvironment(64)
+	in := make([]fp.FixedPoint, 1)
+	_, err := Pslq(env, in, nil, 0, verbose)
+	if err != ErrorBadArguments {
+		t.Error("Expecting", ErrorBadArguments, "but got", err)
+	}
+}
+
+func TestErrorPrecisionTooLow(t *testing.T) {
+	env := fp.NewEnvironment(63)
+	in := make([]fp.FixedPoint, 2)
+	in[0].SetInt64(env, 1)
+	in[1].SetInt64(env, -2)
+	_, err := Pslq(env, in, nil, 0, verbose)
+	if err != ErrorPrecisionTooLow {
+		t.Error("Expecting", ErrorPrecisionTooLow, "but got", err)
+	}
+}
+
+func TestErrorToleranceRoundsToZero(t *testing.T) {
+	// FIXME Can't test this until can pass tolerance in
+	// if err != ErrorToleranceRoundsToZero {
+	// 	t.Error("Expecting", ErrorToleranceRoundsToZero, "but got", err)
+	// }
+}
+
+func TestErrorZeroArguments(t *testing.T) {
+	env := fp.NewEnvironment(64)
+	in := make([]fp.FixedPoint, 2)
+	in[0].SetInt64(env, 0)
+	in[1].SetInt64(env, -2)
+	_, err := Pslq(env, in, nil, 0, verbose)
+	if err != ErrorZeroArguments {
+		t.Error("Expecting", ErrorZeroArguments, "but got", err)
+	}
+}
+
+func TestErrorArgumentTooSmall(t *testing.T) {
+	env := fp.NewEnvironment(64)
+	in := make([]fp.FixedPoint, 2)
+	in[0].Init(env)
+	in[1].SetInt64(env, -2)
+	const minOkValue = 1 << (64/4 - 7)
+	in[0].Int.SetInt64(minOkValue - 1)
+	_, err := Pslq(env, in, nil, 0, verbose)
+	if err != ErrorArgumentTooSmall {
+		t.Error("Expecting", ErrorArgumentTooSmall, "but got", err)
+	}
+	in[0].Int.SetInt64(minOkValue)
+	_, err = Pslq(env, in, nil, 0, verbose)
+	if err == ErrorArgumentTooSmall {
+		t.Error("Not expecting", err)
+	}
+}
+
 // assert pslq([3*pi+4*e/7, pi, e, log(2)]) == [7, -21, -4, 0]
 // assert pslq([4.9999999999999991, 1]) == [1, -5]
 // assert pslq([2,1]) == [1, -2]
