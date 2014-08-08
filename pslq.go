@@ -1,9 +1,5 @@
-// Implens PSLQ algorithm for iteger releation detection.
+// Implements PSLQ algorithm for integer relation detection.
 package pslq
-
-// Make an adaptive Pslq which raises precision
-
-// FIXME where did / 100s come from?
 
 import (
 	"errors"
@@ -153,7 +149,6 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 
 	// Useful constants
 	_1 := env.NewInt(1)
-	_100 := env.NewInt(100)
 	var maxcoeff_fp fp.FixedPoint
 	maxcoeff_fp.SetBigInt(env, maxcoeff)
 
@@ -187,8 +182,8 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	if minx.Sign() == 0 {
 		return nil, ErrorNonZeroArguments
 	}
-	tmp0.Div(tol, _100)
-	if minx.Cmp(tmp0) < 0 { //  minx < tol/100
+	tmp0.Rsh(tol, 7)
+	if minx.Cmp(tmp0) < 0 { //  minx < tol/128
 		return nil, ErrorArgumentTooSmall
 	}
 
