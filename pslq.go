@@ -547,8 +547,6 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		var best_err fp.FixedPoint
 		best_err.Set(&maxcoeff_fp)
 		for i := 1; i <= n; i++ {
-			// FIXME what if there is more than one value
-			// of |y| < tol?
 			var err fp.FixedPoint
 			err.Abs(&y[i])
 			// Maybe we are done?
