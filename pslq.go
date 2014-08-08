@@ -1,5 +1,14 @@
 // Implements PSLQ algorithm for integer relation detection.
+//
+// This code was originally ported from the sympy identification.py module to Go
+//
+// It was subsequently modified to improve correctness (in particular
+// implementing the termination condition using the A matrix) and
+// performance
 package pslq
+
+// Original code: Copyright (c) 2006-2014 SymPy Development Team
+// Modifications: Copyright (c) 2014 Nick Craig-Wood
 
 import (
 	"errors"
@@ -87,28 +96,26 @@ func printVector(name string, x []fp.FixedPoint) {
 	}
 }
 
-// Given a vector of real numbers `x = [x_0, x_1, ..., x_n]`, ``pslq(x)``
+// Given a vector of real numbers x = [x_0, x_1, ..., x_n], Pslq(x)
 // uses the PSLQ algorithm to find a list of integers
-// `[c_0, c_1, ..., c_n]` such that
+// [c_0, c_1, ..., c_n] such that
 //
-// .. math ::
+//     |c_1 x_1 + c_2 x_2 + ... + c_n x_n| < tolerance
 //
-//     |c_1 x_1 + c_2 x_2 + ... + c_n x_n| < \mathrm{tol}
+// and such that max |c_k| < maxcoeff. If no such vector exists, Pslq
+// returns one of the errors in this package depending on whether it
+// has run out of iterations, precision or explored up to the
+// maxcoeff. The tolerance defaults to 3/4 of the precision of the
+// Environment passed in.
 //
-// and such that `\max |c_k| < \mathrm{maxcoeff}`. If no such vector
-// exists, :func:`~mpmath.pslq` returns ``None``. The tolerance defaults to
-// 3/4 of the working precision.
-//
-// **Algorithm**
-//
-// This is a fairly direct translation to Python of the pseudocode given by
+// This is a fairly direct translation of the pseudocode given by
 // David Bailey, "The PSLQ Integer Relation Algorithm":
 // http://www.cecm.sfu.ca/organics/papers/bailey/paper/html/node3.html
 //
-// The present implementation uses fixed-point instead of floating-point
-// arithmetic, since this is significantly (about 7x) faster.
-//
-// prec is the number of bits of precision each fp.FixedPoint has
+// This implementation uses fixed-point instead of floating-point
+// arithmetic, since this is significantly faster.  This does
+// introduce some additional failure modes over the original paper
+// which should hopefully be covered correctly.
 //
 // If a result is returned, the first non-zero element will be positive
 func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
@@ -157,10 +164,8 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	tmp1 := env.New()
 	bigTmp := new(big.Int)
 
-	// Convert to fixed-point numbers. The dummy None is added so we can
-	// use 1-based indexing. (This just allows us to be consistent with
-	// Bailey's indexing. The algorithm is 100 lines long, so debugging
-	// a single wrong index can be painful.)
+	// Convert to fixed-point numbers. These use 1-based indexing
+	// to allow us to be consistent with Bailey's indexing.
 	xNew := make([]fp.FixedPoint, len(x)+1)
 	minx := env.New()
 	minxFirst := true
