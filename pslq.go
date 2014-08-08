@@ -285,7 +285,8 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 				// H[i][i] = (s[i+1] << prec) / s[i]
 				H[i][i].Div(&s[i+1], &s[i])
 			} else {
-				H[i][i].SetInt64(env, 0)
+				// Precision probably exhausted
+				return nil, ErrorPrecisionExhausted
 			}
 		}
 		for j := 1; j < i; j++ {
@@ -300,7 +301,8 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 				tmp0.Neg(tmp0)
 				H[i][j].Div(tmp0, &sjj1)
 			} else {
-				H[i][j].SetInt64(env, 0)
+				// Precision probably exhausted
+				return nil, ErrorPrecisionExhausted
 			}
 		}
 	}
@@ -331,13 +333,10 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			var t big.Int
 			if H[j][j].Sign() != 0 {
 				tmp0.Div(&H[i][j], &H[j][j])
-				// FIXME div is 1 different in py - temp for matching up
-				one := big.NewInt(1)         // FIXME
-				tmp0.Int.Sub(&tmp0.Int, one) // FIXME
 				tmp0.RoundBigInt(&t)
 			} else {
-				//t = 0
-				continue
+				// Precision probably exhausted
+				return nil, ErrorPrecisionExhausted
 			}
 			if debug {
 				fmt.Printf("H[i][j]=%d\n", &H[i][j])
@@ -438,11 +437,9 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			tmp0.Add(tmp0, tmp1)
 			var t0 fp.FixedPoint
 			t0.Sqrt(tmp0)
-			// A zero element probably indicates that the precision has
-			// been exhausted. FIXME: this could be spurious, due to
-			// using fixed-point arithmetic
+			// Precision probably exhausted
 			if t0.Sign() == 0 {
-				break
+				return nil, ErrorPrecisionExhausted
 			}
 			var t1, t2 fp.FixedPoint
 			t1.Div(&H[m][m], &t0)
@@ -486,7 +483,7 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
 					// Precision probably exhausted
-					break
+					return nil, ErrorPrecisionExhausted
 				}
 				tmp0.Div(&H[i][j], &H[j][j])
 				tmp0.RoundBigInt(&t)
