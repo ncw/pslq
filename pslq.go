@@ -154,7 +154,6 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	// Useful constants
 	_1 := env.NewInt(1)
 	_100 := env.NewInt(100)
-	_100big := big.NewInt(100)
 	var maxcoeff_fp fp.FixedPoint
 	maxcoeff_fp.SetBigInt(env, maxcoeff)
 
@@ -626,7 +625,6 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
 			tmp0.Div(_1, &recnorm)
 			tmp0.BigInt(&norm)
-			norm.Div(&norm, _100big)
 		}
 		if verbose {
 			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, &norm)

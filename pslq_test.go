@@ -198,20 +198,20 @@ func TestPslqPiFail01(t *testing.T) { piFailTest(t, 64, 75, 0, ErrorNoRelationFo
 func TestPslqPiFail02(t *testing.T) { piFailTest(t, 64, 75, 3, ErrorPrecisionExhausted) }
 func TestPslqPiFail03(t *testing.T) { piFailTest(t, 128, 75, 3, ErrorIterationsExceeded) }
 func TestPslqPiFail04(t *testing.T) { piFailTest(t, 128, 150, 3, ErrorNoRelationFound) }
-func TestPslqPiFail05(t *testing.T) { piFailTest(t, 128, 300, 10, ErrorPrecisionExhausted) }
-func TestPslqPiFail06(t *testing.T) { piFailTest(t, 256, 300, 10, ErrorIterationsExceeded) }
+func TestPslqPiFail05(t *testing.T) { piFailTest(t, 128, 200, 10, ErrorPrecisionExhausted) }
+func TestPslqPiFail06(t *testing.T) { piFailTest(t, 256, 200, 10, ErrorIterationsExceeded) }
 func TestPslqPiFail07(t *testing.T) { piFailTest(t, 256, 1E8, 10, ErrorNoRelationFound) }
-func TestPslqPiFail08(t *testing.T) { piFailTest(t, 256, 1E8, 11, ErrorPrecisionExhausted) }
-func TestPslqPiFail09(t *testing.T) { piFailTest(t, 512, 1E8, 11, ErrorNoRelationFound) }
+func TestPslqPiFail08(t *testing.T) { piFailTest(t, 256, 1E8, 13, ErrorPrecisionExhausted) }
+func TestPslqPiFail09(t *testing.T) { piFailTest(t, 512, 1E8, 13, ErrorNoRelationFound) }
 func TestPslqPiFail10(t *testing.T) { piFailTest(t, 512, 1E8, 22, ErrorNoRelationFound) }
-func TestPslqPiFail11(t *testing.T) { piFailTest(t, 512, 1E8, 23, ErrorPrecisionExhausted) }
-func TestPslqPiFail12(t *testing.T) { piFailTest(t, 1024, 1E8, 23, ErrorNoRelationFound) }
+func TestPslqPiFail11(t *testing.T) { piFailTest(t, 512, 1E8, 25, ErrorPrecisionExhausted) }
+func TestPslqPiFail12(t *testing.T) { piFailTest(t, 1024, 1E8, 25, ErrorNoRelationFound) }
 func TestPslqPiFail13(t *testing.T) { piFailTest(t, 1024, 1E8, 46, ErrorNoRelationFound) }
-func TestPslqPiFail14(t *testing.T) { piFailTest(t, 1024, 1E8, 47, ErrorPrecisionExhausted) }
-func TestPslqPiFail15(t *testing.T) { piFailTest(t, 2048, 1E8, 47, ErrorNoRelationFound) }
-func TestPslqPiFail16(t *testing.T) { piFailTest(t, 2048, 1E8, 96, ErrorNoRelationFound) }
-func TestPslqPiFail17(t *testing.T) { piFailTest(t, 2048, 1E8, 97, ErrorPrecisionExhausted) }
-func TestPslqPiFail18(t *testing.T) { piFailTest(t, 2048+64, 1E8, 97, ErrorNoRelationFound) }
+func TestPslqPiFail14(t *testing.T) { piFailTest(t, 1024, 1E8, 49, ErrorPrecisionExhausted) }
+func TestPslqPiFail15(t *testing.T) { piFailTest(t, 2048, 1E8, 49, ErrorNoRelationFound) }
+func TestPslqPiFail16(t *testing.T) { piFailTest(t, 2048, 1E8, 98, ErrorNoRelationFound) }
+func TestPslqPiFail17(t *testing.T) { piFailTest(t, 2048, 1E8, 99, ErrorPrecisionExhausted) }
+func TestPslqPiFail18(t *testing.T) { piFailTest(t, 2048+64, 1E8, 99, ErrorNoRelationFound) }
 
 func TestPslqPiFail20(t *testing.T) { piFailTest(t, 67, 721, 12, ErrorPrecisionExhausted) }
 
