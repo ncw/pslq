@@ -113,6 +113,8 @@ func printVector(name string, x []fp.FixedPoint) {
 // arithmetic, since this is significantly (about 7x) faster.
 //
 // prec is the number of bits of precision each fp.FixedPoint has
+//
+// If a result is returned, the first non-zero element will be positive
 func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
 	if maxcoeff == nil {
 		maxcoeff = big.NewInt(1000)
@@ -579,6 +581,20 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 				if maxc.Cmp(maxcoeff) < 0 {
 					if verbose {
 						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
+					}
+					// Find sign of first non zero item
+					sign := 0
+					for i := range vec {
+						sign = vec[i].Sign()
+						if sign != 0 {
+							break
+						}
+					}
+					// Normalise vec making first non-zero argument positive
+					if sign < 0 {
+						for i := range vec {
+							vec[i].Neg(&vec[i])
+						}
 					}
 					return vec, nil
 				}
