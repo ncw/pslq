@@ -8,13 +8,13 @@
 package pslq
 
 // Original code: Copyright (c) 2006-2014 SymPy Development Team
-// Modifications: Copyright (c) 2014 Nick Craig-Wood
+// Modifications: Copyright (c) 2014-2015 Nick Craig-Wood
 
 import (
 	"errors"
 	"fmt"
-	"fp"
 	"log"
+	"math"
 	"math/big"
 )
 
@@ -47,10 +47,10 @@ func min(a, b int) int {
 }
 
 // Make a new matrix with that many rows and that many cols
-func newMatrix(rows, cols int) [][]fp.FixedPoint {
-	M := make([][]fp.FixedPoint, rows)
+func newMatrix(rows, cols int) [][]big.Float {
+	M := make([][]big.Float, rows)
 	for i := 0; i < cols; i++ {
-		M[i] = make([]fp.FixedPoint, cols)
+		M[i] = make([]big.Float, cols)
 	}
 	return M
 }
@@ -65,11 +65,11 @@ func newBigIntMatrix(rows, cols int) [][]big.Int {
 }
 
 // Print a matrix
-func printMatrix(name string, X [][]fp.FixedPoint) {
+func printMatrix(name string, X [][]big.Float) {
 	n := len(X) - 1
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, &X[i][j])
+			fmt.Printf("%s[%d,%d] = %f\n", name, i, j, &X[i][j])
 		}
 		fmt.Printf("\n")
 	}
@@ -87,13 +87,68 @@ func printBigIntMatrix(name string, X [][]big.Int) {
 }
 
 // Print a vector
-func printVector(name string, x []fp.FixedPoint) {
+func printVector(name string, x []big.Float) {
 	for i := range x {
 		if i == 0 {
 			continue
 		}
-		fmt.Printf("%s[%d] = %d\n", name, i, &x[i])
+		fmt.Printf("%s[%d] = %f\n", name, i, &x[i])
 	}
+}
+
+// Compute the square root of n using Newton's Method. We start with
+// an initial estimate for sqrt(n), and then iterate
+//     x_{n+1} = 1/2 * ( x_n + (2.0 / x_n) )
+// Result is returned in x
+func Sqrt(n, x *big.Float) {
+	if n == x {
+		panic("need distinct input and output")
+	}
+	if n.Sign() == 0 {
+		x.Set(n)
+		return
+	} else if n.Sign() < 0 {
+		panic("Sqrt of negative number")
+	}
+	prec := n.Prec()
+
+	// Initialize values we need for the computation.
+	half := new(big.Float).SetPrec(prec).SetFloat64(0.5)
+
+	// Use the floating point square root as initial estimate
+	nFloat64, _ := n.Float64()
+	x.SetPrec(prec).SetFloat64(math.Sqrt(nFloat64))
+
+	// We use t as a temporary variable. There's no need to set its precision
+	// since big.Float values with unset (== 0) precision automatically assume
+	// the largest precision of the arguments when used as the result (receiver)
+	// of a big.Float operation.
+	t := new(big.Float)
+
+	// Iterate.
+	for {
+		t.Quo(n, x)    // t = n / x_n
+		t.Add(x, t)    // t = x_n + (n / x_n)
+		t.Mul(half, t) // x_{n+1} = 0.5 * t
+		if x.Cmp(t) == 0 {
+			// Exit loop if no change to result
+			break
+		}
+		x.Set(t)
+	}
+}
+
+// Sets res to nearest_int(x)
+func NearestInt(x *big.Float, res *big.Int) {
+	prec := x.Prec()
+	half := new(big.Float).SetPrec(prec).SetFloat64(0.5)
+	tmp := new(big.Float).SetPrec(prec)
+	if x.Sign() >= 0 {
+		tmp.Add(x, half)
+	} else {
+		tmp.Sub(x, half)
+	}
+	tmp.Int(res)
 }
 
 // Given a vector of real numbers x = [x_0, x_1, ..., x_n], Pslq(x)
@@ -118,7 +173,7 @@ func printVector(name string, x []fp.FixedPoint) {
 // which should hopefully be covered correctly.
 //
 // If a result is returned, the first non-zero element will be positive
-func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
+func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
 	if maxcoeff == nil {
 		maxcoeff = big.NewInt(1000)
 	}
@@ -132,42 +187,42 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	}
 
 	// At too low precision, the algorithm becomes meaningless
-	if env.Prec < 64 {
+	if Prec < 64 {
 		return nil, ErrorPrecisionTooLow
 	}
 
-	if verbose && int(env.Prec)/max(2, int(n)) < 5 {
+	if verbose && int(Prec)/max(2, int(n)) < 5 {
 		log.Printf("Warning: precision for PSLQ may be too low")
 	}
 
-	target := (env.Prec * 3) / 4
+	target := (int(Prec) * 3) / 4
+
+	// Useful constants
+	_1 := big.NewFloat(1).SetPrec(Prec)
 
 	// FIXME make it so you can pass tol in
-	tol := env.NewInt(1)
-	tol.Rsh(tol, target)
+	tol := new(big.Float).SetPrec(Prec).SetMantExp(_1, -target)
 
 	if verbose {
-		log.Printf("PSLQ using prec %d and tol %s", env.Prec, tol)
+		log.Printf("PSLQ using prec %d and tol %g", Prec, tol)
 	}
 
 	if tol.Sign() == 0 {
 		return nil, ErrorToleranceRoundsToZero
 	}
 
-	// Useful constants
-	_1 := env.NewInt(1)
-	var maxcoeff_fp fp.FixedPoint
-	maxcoeff_fp.SetBigInt(env, maxcoeff)
+	var maxcoeff_fp big.Float
+	maxcoeff_fp.SetPrec(Prec).SetInt(maxcoeff)
 
 	// Temporary variables
-	tmp0 := env.New()
-	tmp1 := env.New()
+	tmp0 := new(big.Float).SetPrec(Prec)
+	tmp1 := new(big.Float).SetPrec(Prec)
 	bigTmp := new(big.Int)
 
 	// Convert to fixed-point numbers. These use 1-based indexing
 	// to allow us to be consistent with Bailey's indexing.
-	xNew := make([]fp.FixedPoint, len(x)+1)
-	minx := env.New()
+	xNew := make([]big.Float, len(x)+1)
+	minx := new(big.Float).SetPrec(Prec)
 	minxFirst := true
 	for i, xk := range x {
 		p := &xNew[i+1]
@@ -187,17 +242,19 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	if minx.Sign() == 0 {
 		return nil, ErrorZeroArguments
 	}
-	tmp0.Rsh(tol, 7)
+	tmp1.SetInt64(128)
+	tmp0.Quo(tol, tmp1)
 	if minx.Cmp(tmp0) < 0 { //  minx < tol/128
 		return nil, ErrorArgumentTooSmall
 	}
 
-	tmp0.SetInt64(env, 4)
-	tmp0.DivInt64(tmp0, 3)
-	var γ fp.FixedPoint
-	γ.Sqrt(tmp0) /// sqrt(4<<prec)/3)
+	tmp0.SetInt64(4)
+	tmp1.SetInt64(3)
+	tmp0.Quo(tmp0, tmp1)
+	var γ big.Float
+	Sqrt(tmp0, &γ) /// sqrt(4<<prec)/3)
 	if debug {
-		fmt.Printf("γ = %d\n", &γ)
+		fmt.Printf("γ = %f\n", &γ)
 	}
 	A := newBigIntMatrix(n+1, n+1)
 	B := newBigIntMatrix(n+1, n+1)
@@ -214,7 +271,7 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 				A[i][j].SetInt64(0)
 				B[i][j].SetInt64(0)
 			}
-			H[i][j].SetInt64(env, 0)
+			H[i][j].SetInt64(0)
 		}
 	}
 	if debug {
@@ -232,32 +289,32 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	//     y_k := t * x_k
 	//     s_k := t * s_k
 	// endfor.
-	s := make([]fp.FixedPoint, n+1)
+	s := make([]big.Float, n+1)
 	for i := 1; i <= n; i++ {
-		s[i].SetInt64(env, 0)
+		s[i].SetInt64(0)
 	}
 	for k := 1; k <= n; k++ {
-		var t fp.FixedPoint
-		t.SetInt64(env, 0)
+		var t big.Float
+		t.SetInt64(0)
 		for j := k; j <= n; j++ {
 			tmp0.Mul(&x[j], &x[j])
 			t.Add(&t, tmp0)
 		}
-		s[k].Sqrt(&t)
+		Sqrt(&t, &s[k])
 	}
 	if debug {
 		fmt.Println("Init Step 2")
 		printVector("s", s)
 	}
-	var t fp.FixedPoint
+	var t big.Float
 	t.Set(&s[1])
-	y := make([]fp.FixedPoint, len(x))
+	y := make([]big.Float, len(x))
 	copy(y, x)
 	for k := 1; k <= n; k++ {
 		// y[k] = (x[k] << prec) / t
-		y[k].Div(&x[k], &t)
+		y[k].Quo(&x[k], &t)
 		// s[k] = (s[k] << prec) / t
-		s[k].Div(&s[k], &t)
+		s[k].Quo(&s[k], &t)
 	}
 	if debug {
 		printVector("y", y)
@@ -277,32 +334,30 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 	// endfor
 	for i := 1; i <= n; i++ {
 		for j := i + 1; j < n; j++ {
-			H[i][j].SetInt64(env, 0)
+			H[i][j].SetInt64(0)
 		}
 		if i <= n-1 {
-			if s[i].Sign() != 0 {
-				// H[i][i] = (s[i+1] << prec) / s[i]
-				H[i][i].Div(&s[i+1], &s[i])
-			} else {
+			if s[i].Sign() == 0 {
 				// Precision probably exhausted
 				return nil, ErrorPrecisionExhausted
 			}
+			// H[i][i] = (s[i+1] << prec) / s[i]
+			H[i][i].Quo(&s[i+1], &s[i])
 		}
 		for j := 1; j < i; j++ {
-			var sjj1 fp.FixedPoint
+			var sjj1 big.Float
 			sjj1.Mul(&s[j], &s[j+1])
 			if debug {
-				fmt.Printf("sjj1 = %d\n", &sjj1)
+				fmt.Printf("sjj1 = %f\n", &sjj1)
 			}
-			if sjj1.Sign() != 0 {
-				// H[i][j] = ((-y[i] * y[j]) << prec) / sjj1
-				tmp0.Mul(&y[i], &y[j])
-				tmp0.Neg(tmp0)
-				H[i][j].Div(tmp0, &sjj1)
-			} else {
+			if sjj1.Sign() == 0 {
 				// Precision probably exhausted
 				return nil, ErrorPrecisionExhausted
 			}
+			// H[i][j] = ((-y[i] * y[j]) << prec) / sjj1
+			tmp0.Mul(&y[i], &y[j])
+			tmp0.Neg(tmp0)
+			H[i][j].Quo(tmp0, &sjj1)
 		}
 	}
 	if debug {
@@ -330,26 +385,26 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		for j := i - 1; j > 0; j-- {
 			//t = floor(H[i][j]/H[j,j] + 0.5)
 			var t big.Int
-			if H[j][j].Sign() != 0 {
-				tmp0.Div(&H[i][j], &H[j][j])
-				tmp0.RoundBigInt(&t)
-			} else {
+			var tFloat big.Float
+			if H[j][j].Sign() == 0 {
 				// Precision probably exhausted
 				return nil, ErrorPrecisionExhausted
 			}
+			tmp0.Quo(&H[i][j], &H[j][j])
+			NearestInt(tmp0, &t)
+			tFloat.SetInt(&t).SetPrec(Prec)
 			if debug {
-				fmt.Printf("H[i][j]=%d\n", &H[i][j])
-				fmt.Printf("H[j][j]=%d\n", &H[j][j])
-				fmt.Printf("tmp=%d\n", &tmp0.Int)
-				fmt.Printf("tmp=%d\n", tmp0)
-				fmt.Printf("t=%d\n", t)
+				fmt.Printf("H[i][j]=%f\n", &H[i][j])
+				fmt.Printf("H[j][j]=%f\n", &H[j][j])
+				fmt.Printf("tmp=%f\n", tmp0)
+				fmt.Printf("t=%d\n", &t)
 			}
 			// y[j] = y[j] + (t * y[i] >> prec)
-			tmp0.MulBigInt(&y[i], &t)
+			tmp0.Mul(&y[i], &tFloat)
 			y[j].Add(&y[j], tmp0)
 			for k := 1; k <= j; k++ {
 				// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-				tmp0.MulBigInt(&H[j][k], &t)
+				tmp0.Mul(&H[j][k], &tFloat)
 				H[i][k].Sub(&H[i][k], tmp0)
 			}
 			for k := 1; k <= n; k++ {
@@ -375,14 +430,14 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		//
 		// Select m such that γ^i * |Hii| is maximal when i = m.
 		m := -1
-		var szmax fp.FixedPoint
-		szmax.SetInt64(env, -1)
-		var γPower fp.FixedPoint
+		var szmax big.Float
+		szmax.SetInt64(-1)
+		var γPower big.Float
 		γPower.Set(&γ)
 		for i := 1; i < n; i++ {
-			var absH fp.FixedPoint
+			var absH big.Float
 			absH.Abs(&H[i][i])
-			var sz fp.FixedPoint
+			var sz big.Float
 			sz.Mul(&γPower, &absH)
 			// sz := (g**i * abs(h)) >> (prec * (i - 1))
 			if sz.Cmp(&szmax) > 0 {
@@ -393,7 +448,7 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		}
 		if debug {
 			fmt.Println("Step 1")
-			fmt.Printf("szmax=%d\n", &szmax)
+			fmt.Printf("szmax=%f\n", &szmax)
 			fmt.Printf("m=%d\n", m)
 		}
 		// Step 2
@@ -434,17 +489,17 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			tmp0.Mul(&H[m][m], &H[m][m])
 			tmp1.Mul(&H[m][m+1], &H[m][m+1])
 			tmp0.Add(tmp0, tmp1)
-			var t0 fp.FixedPoint
-			t0.Sqrt(tmp0)
+			var t0 big.Float
+			Sqrt(tmp0, &t0)
 			// Precision probably exhausted
 			if t0.Sign() == 0 {
 				return nil, ErrorPrecisionExhausted
 			}
-			var t1, t2 fp.FixedPoint
-			t1.Div(&H[m][m], &t0)
-			t2.Div(&H[m][m+1], &t0)
+			var t1, t2 big.Float
+			t1.Quo(&H[m][m], &t0)
+			t2.Quo(&H[m][m+1], &t0)
 			for i := m; i <= n; i++ {
-				var t3, t4 fp.FixedPoint
+				var t3, t4 big.Float
 				t3.Set(&H[i][m])
 				t4.Set(&H[i][m+1])
 				// H[i][m] = (t1*t3 + t2*t4) >> prec
@@ -479,19 +534,21 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		// endfor.
 		for i := m + 1; i <= n; i++ {
 			var t big.Int
+			var tFloat big.Float
 			for j := min(i-1, m+1); j > 0; j-- {
 				if H[j][j].Sign() == 0 {
 					// Precision probably exhausted
 					return nil, ErrorPrecisionExhausted
 				}
-				tmp0.Div(&H[i][j], &H[j][j])
-				tmp0.RoundBigInt(&t)
+				tmp0.Quo(&H[i][j], &H[j][j])
+				NearestInt(tmp0, &t)
+				tFloat.SetInt(&t).SetPrec(Prec)
 				// y[j] = y[j] + ((t * y[i]) >> prec)
-				tmp0.MulBigInt(&y[i], &t)
+				tmp0.Mul(&y[i], &tFloat)
 				y[j].Add(&y[j], tmp0)
 				for k := 1; k <= j; k++ {
 					// H[i][k] = H[i][k] - (t * H[j][k] >> prec)
-					tmp0.MulBigInt(&H[j][k], &t)
+					tmp0.Mul(&H[j][k], &tFloat)
 					H[i][k].Sub(&H[i][k], tmp0)
 				}
 				for k := 1; k <= n; k++ {
@@ -535,7 +592,7 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			}
 		}
 		if debug {
-			log.Printf("Max A precision = %d, precision = %d, tolerance %d, ratio = %.3f\n", maxAPrecision, env.Prec, target, float64(maxAPrecision)/float64(target))
+			log.Printf("Max A precision = %d, precision = %d, tolerance %d, ratio = %.3f\n", maxAPrecision, Prec, target, float64(maxAPrecision)/float64(target))
 		}
 		if float64(maxAPrecision)/float64(target) > 0.85 {
 			if verbose {
@@ -544,10 +601,10 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 			return nil, ErrorPrecisionExhausted
 		}
 
-		var best_err fp.FixedPoint
+		var best_err big.Float
 		best_err.Set(&maxcoeff_fp)
 		for i := 1; i <= n; i++ {
-			var err fp.FixedPoint
+			var err big.Float
 			err.Abs(&y[i])
 			// Maybe we are done?
 			if err.Cmp(tol) < 0 {
@@ -574,7 +631,7 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 				}
 				if maxc.Cmp(maxcoeff) < 0 {
 					if verbose {
-						log.Printf("FOUND relation at iter %d/%d, error: %d", REP, maxsteps, &err)
+						log.Printf("FOUND relation at iter %d/%d, error: %g", REP, maxsteps, &err)
 					}
 					// Find sign of first non zero item
 					sign := 0
@@ -608,8 +665,8 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		// Calculate a lower bound for the norm. We could do this
 		// more exactly (using the Euclidean norm) but there is probably
 		// no practical benefit.
-		var recnorm fp.FixedPoint
-		recnorm.SetInt64(env, 0)
+		var recnorm big.Float
+		recnorm.SetInt64(0)
 		for i := 1; i <= n; i++ {
 			for j := 1; j <= n; j++ {
 				tmp0.Abs(&H[i][j])
@@ -621,11 +678,11 @@ func Pslq(env *fp.Environment, x []fp.FixedPoint, maxcoeff *big.Int, maxsteps in
 		norm.Set(maxcoeff)
 		if recnorm.Sign() != 0 {
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
-			tmp0.Div(_1, &recnorm)
-			tmp0.BigInt(&norm)
+			tmp0.Quo(_1, &recnorm)
+			tmp0.Int(&norm)
 		}
 		if verbose {
-			log.Printf("%2d/%2d:  Error: %d   Norm: %d", REP, maxsteps, &best_err, &norm)
+			log.Printf("%2d/%2d:  Error: %g   Norm: %d", REP, maxsteps, &best_err, &norm)
 		}
 		if norm.Cmp(maxcoeff) >= 0 {
 			if verbose {
