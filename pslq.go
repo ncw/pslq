@@ -18,6 +18,7 @@ import (
 	"math/big"
 )
 
+// Set to true to print a lot of debugging info
 const debug = false
 
 // Errors
@@ -31,6 +32,19 @@ var (
 	ErrorNoRelationFound       = errors.New("could not find an integer relation")
 	ErrorIterationsExceeded    = errors.New("ran out of iterations looking for relation")
 )
+
+// Pslq environment - may be reused and used concurrently
+type Pslq struct {
+	prec        uint
+	target      uint
+	tol         big.Float
+	maxcoeff    big.Int
+	maxcoeff_fp big.Float
+	maxsteps    int
+	verbose     bool
+	one         big.Float
+	half        big.Float
+}
 
 func max(a, b int) int {
 	if a >= b {
@@ -96,11 +110,57 @@ func printVector(name string, x []big.Float) {
 	}
 }
 
+// Create a new environment for evaluating Pslq at the given
+// precision.  This can be re-used multiple times and used
+// concurrently after it has been set up.
+func New(Prec uint) *Pslq {
+	e := &Pslq{
+		prec:     Prec,
+		maxsteps: 100,
+	}
+	e.one.SetPrec(Prec).SetFloat64(1)
+	e.half.SetPrec(Prec).SetFloat64(0.5)
+	e.SetMaxCoeff(big.NewInt(1000))
+	e.SetTarget((Prec * 3) / 4)
+	return e
+}
+
+// SetVerbose if passed a true parameter then Run will log its
+// progress
+func (e *Pslq) SetVerbose(verbose bool) *Pslq {
+	e.verbose = verbose
+	return e
+}
+
+// SetMaxCoeff sets the maximum size of the parameter to be searched
+// for - default 1000
+func (e *Pslq) SetMaxCoeff(maxcoeff *big.Int) *Pslq {
+	e.maxcoeff.Set(maxcoeff)
+	e.maxcoeff_fp.SetPrec(e.prec).SetInt(&e.maxcoeff)
+	return e
+}
+
+// SetMaxSteps sets the maximum number of steps of the algorithm to be
+// run default 100
+func (e *Pslq) SetMaxSteps(maxsteps int) *Pslq {
+	e.maxsteps = maxsteps
+	return e
+}
+
+// SetTarget sets the target precision of the result.
+//
+// By default this is 3/4 of the precision
+func (e *Pslq) SetTarget(target uint) *Pslq {
+	e.target = target
+	e.tol.SetPrec(e.prec).SetMantExp(&e.one, -int(e.target))
+	return e
+}
+
 // Compute the square root of n using Newton's Method. We start with
 // an initial estimate for sqrt(n), and then iterate
-//     x_{n+1} = 1/2 * ( x_n + (2.0 / x_n) )
+//     x_{i+1} = 1/2 * ( x_i + (n / x_i) )
 // Result is returned in x
-func Sqrt(n, x *big.Float) {
+func (e *Pslq) Sqrt(n, x *big.Float) {
 	if n == x {
 		panic("need distinct input and output")
 	}
@@ -112,9 +172,6 @@ func Sqrt(n, x *big.Float) {
 	}
 	prec := n.Prec()
 
-	// Initialize values we need for the computation.
-	half := new(big.Float).SetPrec(prec).SetFloat64(0.5)
-
 	// Use the floating point square root as initial estimate
 	nFloat64, _ := n.Float64()
 	x.SetPrec(prec).SetFloat64(math.Sqrt(nFloat64))
@@ -123,30 +180,30 @@ func Sqrt(n, x *big.Float) {
 	// since big.Float values with unset (== 0) precision automatically assume
 	// the largest precision of the arguments when used as the result (receiver)
 	// of a big.Float operation.
-	t := new(big.Float)
+	var t big.Float
 
 	// Iterate.
 	for {
-		t.Quo(n, x)    // t = n / x_n
-		t.Add(x, t)    // t = x_n + (n / x_n)
-		t.Mul(half, t) // x_{n+1} = 0.5 * t
-		if x.Cmp(t) == 0 {
+		t.Quo(n, x)        // t = n / x_i
+		t.Add(x, &t)       // t = x_i + (n / x_i)
+		t.Mul(&e.half, &t) // x_{i+1} = 0.5 * t
+		if x.Cmp(&t) == 0 {
 			// Exit loop if no change to result
 			break
 		}
-		x.Set(t)
+		x.Set(&t)
 	}
 }
 
 // Sets res to nearest_int(x)
-func NearestInt(x *big.Float, res *big.Int) {
+func (e *Pslq) NearestInt(x *big.Float, res *big.Int) {
 	prec := x.Prec()
-	half := new(big.Float).SetPrec(prec).SetFloat64(0.5)
-	tmp := new(big.Float).SetPrec(prec)
+	var tmp big.Float
+	tmp.SetPrec(prec)
 	if x.Sign() >= 0 {
-		tmp.Add(x, half)
+		tmp.Add(x, &e.half)
 	} else {
-		tmp.Sub(x, half)
+		tmp.Sub(x, &e.half)
 	}
 	tmp.Int(res)
 }
@@ -173,56 +230,38 @@ func NearestInt(x *big.Float, res *big.Int) {
 // which should hopefully be covered correctly.
 //
 // If a result is returned, the first non-zero element will be positive
-func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose bool) ([]big.Int, error) {
-	if maxcoeff == nil {
-		maxcoeff = big.NewInt(1000)
-	}
-	if maxsteps == 0 {
-		maxsteps = 100
-	}
-
+func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 	n := len(x)
 	if n <= 1 {
 		return nil, ErrorBadArguments
 	}
 
 	// At too low precision, the algorithm becomes meaningless
-	if Prec < 64 {
+	if e.prec < 64 {
 		return nil, ErrorPrecisionTooLow
 	}
 
-	if verbose && int(Prec)/max(2, int(n)) < 5 {
+	if e.verbose && int(e.prec)/max(2, int(n)) < 5 {
 		log.Printf("Warning: precision for PSLQ may be too low")
 	}
 
-	target := (int(Prec) * 3) / 4
-
-	// Useful constants
-	_1 := big.NewFloat(1).SetPrec(Prec)
-
-	// FIXME make it so you can pass tol in
-	tol := new(big.Float).SetPrec(Prec).SetMantExp(_1, -target)
-
-	if verbose {
-		log.Printf("PSLQ using prec %d and tol %g", Prec, tol)
+	if e.verbose {
+		log.Printf("PSLQ using prec %d and tol %g", e.prec, e.tol)
 	}
 
-	if tol.Sign() == 0 {
+	if e.tol.Sign() == 0 {
 		return nil, ErrorToleranceRoundsToZero
 	}
 
-	var maxcoeff_fp big.Float
-	maxcoeff_fp.SetPrec(Prec).SetInt(maxcoeff)
-
 	// Temporary variables
-	tmp0 := new(big.Float).SetPrec(Prec)
-	tmp1 := new(big.Float).SetPrec(Prec)
+	tmp0 := new(big.Float).SetPrec(e.prec)
+	tmp1 := new(big.Float).SetPrec(e.prec)
 	bigTmp := new(big.Int)
 
-	// Convert to fixed-point numbers. These use 1-based indexing
-	// to allow us to be consistent with Bailey's indexing.
+	// Convert to use 1-based indexing to allow us to be
+	// consistent with Bailey's indexing.
 	xNew := make([]big.Float, len(x)+1)
-	minx := new(big.Float).SetPrec(Prec)
+	minx := new(big.Float).SetPrec(e.prec)
 	minxFirst := true
 	for i, xk := range x {
 		p := &xNew[i+1]
@@ -243,7 +282,7 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 		return nil, ErrorZeroArguments
 	}
 	tmp1.SetInt64(128)
-	tmp0.Quo(tol, tmp1)
+	tmp0.Quo(&e.tol, tmp1)
 	if minx.Cmp(tmp0) < 0 { //  minx < tol/128
 		return nil, ErrorArgumentTooSmall
 	}
@@ -252,7 +291,7 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 	tmp1.SetInt64(3)
 	tmp0.Quo(tmp0, tmp1)
 	var γ big.Float
-	Sqrt(tmp0, &γ) /// sqrt(4<<prec)/3)
+	e.Sqrt(tmp0, &γ) // sqrt(4<<prec)/3)
 	if debug {
 		fmt.Printf("γ = %f\n", &γ)
 	}
@@ -300,7 +339,7 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 			tmp0.Mul(&x[j], &x[j])
 			t.Add(&t, tmp0)
 		}
-		Sqrt(&t, &s[k])
+		e.Sqrt(&t, &s[k])
 	}
 	if debug {
 		fmt.Println("Init Step 2")
@@ -391,8 +430,8 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 				return nil, ErrorPrecisionExhausted
 			}
 			tmp0.Quo(&H[i][j], &H[j][j])
-			NearestInt(tmp0, &t)
-			tFloat.SetInt(&t).SetPrec(Prec)
+			e.NearestInt(tmp0, &t)
+			tFloat.SetInt(&t).SetPrec(e.prec)
 			if debug {
 				fmt.Printf("H[i][j]=%f\n", &H[i][j])
 				fmt.Printf("H[j][j]=%f\n", &H[j][j])
@@ -425,7 +464,7 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 	var REP int
 	var norm big.Int
 	vec := make([]big.Int, n)
-	for REP = 0; REP < maxsteps; REP++ {
+	for REP = 0; REP < e.maxsteps; REP++ {
 		// Step 1
 		//
 		// Select m such that γ^i * |Hii| is maximal when i = m.
@@ -490,7 +529,7 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 			tmp1.Mul(&H[m][m+1], &H[m][m+1])
 			tmp0.Add(tmp0, tmp1)
 			var t0 big.Float
-			Sqrt(tmp0, &t0)
+			e.Sqrt(tmp0, &t0)
 			// Precision probably exhausted
 			if t0.Sign() == 0 {
 				return nil, ErrorPrecisionExhausted
@@ -541,8 +580,8 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 					return nil, ErrorPrecisionExhausted
 				}
 				tmp0.Quo(&H[i][j], &H[j][j])
-				NearestInt(tmp0, &t)
-				tFloat.SetInt(&t).SetPrec(Prec)
+				e.NearestInt(tmp0, &t)
+				tFloat.SetInt(&t).SetPrec(e.prec)
 				// y[j] = y[j] + ((t * y[i]) >> prec)
 				tmp0.Mul(&y[i], &tFloat)
 				y[j].Add(&y[j], tmp0)
@@ -592,22 +631,22 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 			}
 		}
 		if debug {
-			log.Printf("Max A precision = %d, precision = %d, tolerance %d, ratio = %.3f\n", maxAPrecision, Prec, target, float64(maxAPrecision)/float64(target))
+			log.Printf("Max A precision = %d, precision = %d, tolerance %d, ratio = %.3f\n", maxAPrecision, e.prec, e.target, float64(maxAPrecision)/float64(e.target))
 		}
-		if float64(maxAPrecision)/float64(target) > 0.85 {
-			if verbose {
-				log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
+		if float64(maxAPrecision)/float64(e.target) > 0.85 {
+			if e.verbose {
+				log.Printf("CANCELLING after step %d/%d.", REP, e.maxsteps)
 			}
 			return nil, ErrorPrecisionExhausted
 		}
 
 		var best_err big.Float
-		best_err.Set(&maxcoeff_fp)
+		best_err.Set(&e.maxcoeff_fp)
 		for i := 1; i <= n; i++ {
 			var err big.Float
 			err.Abs(&y[i])
 			// Maybe we are done?
-			if err.Cmp(tol) < 0 {
+			if err.Cmp(&e.tol) < 0 {
 				// We are done if the coefficients are acceptable
 				var maxc big.Int
 				for j := 1; j <= n; j++ {
@@ -627,11 +666,11 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 					}
 				}
 				if debug {
-					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, maxcoeff)
+					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, e.maxcoeff)
 				}
-				if maxc.Cmp(maxcoeff) < 0 {
-					if verbose {
-						log.Printf("FOUND relation at iter %d/%d, error: %g", REP, maxsteps, &err)
+				if maxc.Cmp(&e.maxcoeff) < 0 {
+					if e.verbose {
+						log.Printf("FOUND relation at iter %d/%d, error: %g", REP, e.maxsteps, &err)
 					}
 					// Find sign of first non zero item
 					sign := 0
@@ -675,25 +714,25 @@ func Pslq(Prec uint, x []big.Float, maxcoeff *big.Int, maxsteps int, verbose boo
 				}
 			}
 		}
-		norm.Set(maxcoeff)
+		norm.Set(&e.maxcoeff)
 		if recnorm.Sign() != 0 {
 			// norm = ((1 << (2 * prec)) / recnorm) >> prec
-			tmp0.Quo(_1, &recnorm)
+			tmp0.Quo(&e.one, &recnorm)
 			tmp0.Int(&norm)
 		}
-		if verbose {
-			log.Printf("%2d/%2d:  Error: %g   Norm: %d", REP, maxsteps, &best_err, &norm)
+		if e.verbose {
+			log.Printf("%2d/%2d:  Error: %g   Norm: %d", REP, e.maxsteps, &best_err, &norm)
 		}
-		if norm.Cmp(maxcoeff) >= 0 {
-			if verbose {
-				log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
+		if norm.Cmp(&e.maxcoeff) >= 0 {
+			if e.verbose {
+				log.Printf("CANCELLING after step %d/%d.", REP, e.maxsteps)
 				log.Printf("Could not find an integer relation. Norm bound: %d", &norm)
 			}
 			return nil, ErrorNoRelationFound
 		}
 	}
-	if verbose {
-		log.Printf("CANCELLING after step %d/%d.", REP, maxsteps)
+	if e.verbose {
+		log.Printf("CANCELLING after step %d/%d.", REP, e.maxsteps)
 		log.Printf("Could not find an integer relation. Norm bound: %d", &norm)
 	}
 	return nil, ErrorIterationsExceeded

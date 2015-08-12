@@ -45,7 +45,8 @@ func TestSqrt(t *testing.T) {
 		x := new(big.Float).SetPrec(test.prec)
 		x.SetFloat64(test.in)
 		var got, got2, diff big.Float
-		Sqrt(x, &got)
+		pslq := New(test.prec)
+		pslq.Sqrt(x, &got)
 		got2.SetPrec(test.prec).Mul(&got, &got)
 		diff.Sub(&got2, x)
 		if diff.MinPrec() > 1 {
@@ -58,7 +59,8 @@ func TestSqrt2HighPrecision(t *testing.T) {
 	prec := uint(100/math.Log10(2)) + 1 // 100 decimal digits
 	x := new(big.Float).SetPrec(prec).SetInt64(2)
 	out := new(big.Float).SetPrec(prec)
-	Sqrt(x, out)
+	pslq := New(prec)
+	pslq.Sqrt(x, out)
 	result := fmt.Sprintf("%.100f", out)
 	expected := "1.4142135623730950488016887242096980785696718753769480731766797379907324784621070388503875343276415727"
 	if result != expected {
@@ -70,7 +72,8 @@ func TestSqrt3HighPrecision(t *testing.T) {
 	prec := uint(1000/math.Log10(2)) + 1 // 1000 decimal digits
 	x := new(big.Float).SetPrec(prec).SetInt64(3)
 	out := new(big.Float).SetPrec(prec)
-	Sqrt(x, out)
+	pslq := New(prec)
+	pslq.Sqrt(x, out)
 	result := fmt.Sprintf("%.1000f", out)
 	expected := "1.7320508075688772935274463415058723669428052538103806280558069794519330169088000370811461867572485756756261414154067030299699450949989524788116555120943736485280932319023055820679748201010846749232650153123432669033228866506722546689218379712270471316603678615880190499865373798593894676503475065760507566183481296061009476021871903250831458295239598329977898245082887144638329173472241639845878553976679580638183536661108431737808943783161020883055249016700235207111442886959909563657970871684980728994932964842830207864086039887386975375823173178313959929830078387028770539133695633121037072640192491067682311992883756411414220167427521023729942708310598984594759876642888977961478379583902288548529035760338528080643819723446610596897228728652641538226646984200211954841552784411812865345070351916500166892944154808460712771439997629268346295774383618951101271486387469765459824517885509753790138806649619119622229571105552429237231921977382625616314688420328537166829386496119170497388363954959381"
 	if result != expected {
@@ -97,13 +100,15 @@ func TestSqrtNegative(t *testing.T) {
 	defer func() { checkErr(t, recover(), "Sqrt of negative number") }()
 	x := new(big.Float).SetInt64(-2)
 	var z big.Float
-	Sqrt(x, &z)
+	pslq := New(64)
+	pslq.Sqrt(x, &z)
 }
 
 func TestErrorBadArguments(t *testing.T) {
 	prec := uint(64)
 	in := make([]big.Float, 1)
-	_, err := Pslq(prec, in, nil, 0, verbose)
+	pslq := New(prec).SetVerbose(verbose)
+	_, err := pslq.Run(in)
 	if err != ErrorBadArguments {
 		t.Error("Expecting", ErrorBadArguments, "but got", err)
 	}
@@ -114,7 +119,8 @@ func TestErrorPrecisionTooLow(t *testing.T) {
 	in := make([]big.Float, 2)
 	in[0].SetPrec(prec).SetInt64(1)
 	in[1].SetPrec(prec).SetInt64(-2)
-	_, err := Pslq(prec, in, nil, 0, verbose)
+	pslq := New(prec).SetVerbose(verbose)
+	_, err := pslq.Run(in)
 	if err != ErrorPrecisionTooLow {
 		t.Error("Expecting", ErrorPrecisionTooLow, "but got", err)
 	}
@@ -132,7 +138,8 @@ func TestErrorZeroArguments(t *testing.T) {
 	in := make([]big.Float, 2)
 	in[0].SetPrec(prec).SetInt64(0)
 	in[1].SetPrec(prec).SetInt64(-2)
-	_, err := Pslq(prec, in, nil, 0, verbose)
+	pslq := New(prec).SetVerbose(verbose)
+	_, err := pslq.Run(in)
 	if err != ErrorZeroArguments {
 		t.Error("Expecting", ErrorZeroArguments, "but got", err)
 	}
@@ -144,12 +151,13 @@ func TestErrorArgumentTooSmall(t *testing.T) {
 	tol := math.Pow(2, -float64(3*prec/4))
 	in[0].SetPrec(prec).SetFloat64(tol / 129)
 	in[1].SetPrec(prec).SetInt64(-2)
-	_, err := Pslq(prec, in, nil, 0, verbose)
+	pslq := New(prec).SetVerbose(verbose)
+	_, err := pslq.Run(in)
 	if err != ErrorArgumentTooSmall {
 		t.Error("Expecting", ErrorArgumentTooSmall, "but got", err)
 	}
 	in[0].SetFloat64(tol / 127)
-	_, err = Pslq(prec, in, nil, 0, verbose)
+	_, err = pslq.Run(in)
 	if err == ErrorArgumentTooSmall {
 		t.Error("Not expecting", err)
 	}
@@ -167,7 +175,8 @@ func TestPslqSimple(t *testing.T) {
 	in[0].SetPrec(prec).SetInt64(1)
 	in[1].SetPrec(prec).SetInt64(-2)
 
-	out, err := Pslq(prec, in, nil, 0, verbose)
+	pslq := New(prec).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -190,7 +199,8 @@ func TestPslq2(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetPrec(prec).SetFloat64(inFloat[i])
 	}
-	out, err := Pslq(prec, in, nil, 0, verbose)
+	pslq := New(prec).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -219,7 +229,8 @@ func TestPslq3(t *testing.T) {
 	for i := range inFloat {
 		in[i].SetPrec(prec).SetFloat64(inFloat[i])
 	}
-	out, err := Pslq(prec, in, nil, 1000, verbose)
+	pslq := New(prec).SetVerbose(verbose).SetMaxSteps(1000)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -270,7 +281,8 @@ func TestPslq4(t *testing.T) {
 			t.Logf("in[%d] = %g\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(prec, in, nil, 1000, verbose)
+	pslq := New(prec).SetVerbose(verbose).SetMaxSteps(1000)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -306,7 +318,8 @@ func piFailTest(t *testing.T, prec uint, iterations int, logMaxCoeff int64, expe
 			t.Logf("in[%d] = %g\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(prec, in, maxCoeff, iterations, verbose)
+	pslq := New(prec).SetVerbose(verbose).SetMaxSteps(iterations).SetMaxCoeff(maxCoeff)
+	out, err := pslq.Run(in)
 	if err == nil {
 		t.Errorf("Expecting error but got none")
 	} else {
@@ -365,6 +378,8 @@ func piFailBench(b *testing.B, prec uint, iterations int, logMaxCoeff int64) {
 	maxCoeff := big.NewInt(logMaxCoeff)
 	maxCoeff.Exp(_10, maxCoeff, nil)
 
+	pslq := New(prec).SetVerbose(verbose).SetMaxCoeff(maxCoeff).SetMaxSteps(iterations)
+
 	in := make([]big.Float, 5)
 	for i := range in {
 		if i == 0 {
@@ -376,7 +391,7 @@ func piFailBench(b *testing.B, prec uint, iterations int, logMaxCoeff int64) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Pslq(prec, in, maxCoeff, iterations, verbose)
+		pslq.Run(in)
 	}
 }
 
@@ -403,7 +418,8 @@ func XXXXTestPslq4b(t *testing.T) {
 			t.Logf("in[%d] = %g\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(prec, in, big.NewInt(1E18), 1E6, verbose)
+	pslq := New(prec).SetMaxCoeff(big.NewInt(1E18)).SetMaxSteps(1E6).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err == nil || err.Error() != "could not find an integer relation" {
 		t.Errorf("Wrong error %v", err)
 	}
@@ -464,7 +480,8 @@ func TestPslq5(t *testing.T) {
 	acot(prec, 8, &in[5])
 	acot(prec, 9, &in[6])
 	acot(prec, 10, &in[7])
-	out, err := Pslq(prec, in, nil, 1000, verbose)
+	pslq := New(prec).SetMaxSteps(1000).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -481,7 +498,8 @@ func TestPslq6(t *testing.T) {
 	in[0].SetPrec(prec).SetFloat64(math.Pi / 4)
 	acot(prec, 5, &in[1])
 	acot(prec, 239, &in[2])
-	out, err := Pslq(prec, in, nil, 1000, verbose)
+	pslq := New(prec).SetMaxSteps(1000).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -500,7 +518,8 @@ func TestPslq7(t *testing.T) {
 	acot(prec, 57, &in[2])
 	acot(prec, 239, &in[3])
 	acot(prec, 110443, &in[4])
-	out, err := Pslq(prec, in, nil, 1000, verbose)
+	pslq := New(prec).SetMaxSteps(1000).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}
@@ -524,7 +543,8 @@ func TestPslq8(t *testing.T) {
 			t.Logf("in[%d] = %g\n", i, &in[i])
 		}
 	}
-	out, err := Pslq(prec, in, nil, 10000, verbose)
+	pslq := New(prec).SetMaxSteps(10000).SetVerbose(verbose)
+	out, err := pslq.Run(in)
 	if err != nil {
 		t.Error("Got error", err)
 	}

@@ -16,9 +16,11 @@ import (
 )
 
 var (
-	verbose    = flag.Bool("verbose", false, "Print lots of stuff while running")
-	iterations = flag.Int("iterations", 1000, "Number of iterations to use max")
-	prec       = flag.Uint("prec", 64, "Precision to use")
+	verbose              = flag.Bool("verbose", false, "Print lots of stuff while running")
+	iterations           = flag.Int("iterations", 1000, "Number of iterations to use max")
+	prec                 = flag.Uint("prec", 64, "Precision to use")
+	stdin      io.Reader = os.Stdin
+	stdout     io.Writer = os.Stdout
 )
 
 // syntaxError prints the syntax
@@ -73,7 +75,7 @@ func read(in io.Reader, xs []big.Float) []big.Float {
 // if name is '-' then reads from stdin
 func readFile(name string, xs []big.Float) []big.Float {
 	if name == "-" {
-		return read(os.Stdin, xs)
+		return read(stdin, xs)
 	}
 	in, err := os.Open(name)
 	if err != nil {
@@ -104,23 +106,24 @@ func main() {
 		}
 	}
 	digits := int(math.Log10(2)*float64(*prec) + 1)
-	fmt.Printf("Using precision %d\n", *prec)
+	fmt.Fprintf(stdout, "Using precision %d\n", *prec)
 	for i := range xs {
 		x := &xs[i]
-		fmt.Printf("x[%d] = %*.*f\n", i, digits+6, digits, x)
+		fmt.Fprintf(stdout, "x[%d] = %*.*f\n", i, digits+6, digits, x)
 	}
 
-	result, err := pslq.Pslq(*prec, xs, nil, *iterations, *verbose)
+	pslq := pslq.New(*prec).SetMaxSteps(*iterations).SetVerbose(*verbose)
+	result, err := pslq.Run(xs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "PSLQ failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Result is\n")
+	fmt.Fprintf(stdout, "Result is\n")
 	for i := range result {
 		d := &result[i]
 		if d.Sign() == 0 {
 			continue
 		}
-		fmt.Printf("%d * %.*f\n", d, digits, &xs[i])
+		fmt.Fprintf(stdout, "%d * %.*f\n", d, digits, &xs[i])
 	}
 }
