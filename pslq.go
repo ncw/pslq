@@ -1,12 +1,28 @@
-// Implements PSLQ algorithm for integer relation detection.
+// The PSLQ algorithm for integer relation detection.
 //
-// This code was originally ported from the sympy identification.py module to Go
+// According to Wikipedia: An integer relation algorithm is an
+// algorithm for finding integer relations. Specifically, given a set
+// of real numbers known to a given precision, an integer relation
+// algorithm will either find an integer relation between them, or
+// will determine that no integer relation exists with coefficients
+// whose magnitudes are less than a certain upper bound.
+//
+// This can be used to identify an unknown real number as being a
+// linear combination of some known constants.  For example the
+// original formula for finding the n-th hexadecimal digit of Pi was
+// found using the PSLQ algorithm.
+//
+// See the example for usage, or use the command line tool in the pslq
+// sub-package.
+package pslq
+
+// This code was originally ported from the sympy identification.py
+// module to Go
 //
 // It was subsequently modified to improve correctness (in particular
 // implementing the termination condition using the A matrix) and
-// performance
-package pslq
-
+// to improve performance
+//
 // Original code: Copyright (c) 2006-2014 SymPy Development Team
 // Modifications: Copyright (c) 2014-2015 Nick Craig-Wood
 
@@ -113,6 +129,10 @@ func printVector(name string, x []big.Float) {
 // Create a new environment for evaluating Pslq at the given
 // precision.  This can be re-used multiple times and used
 // concurrently after it has been set up.
+//
+// If the algorithm fails at a given precision (doesn't give an answer
+// or ErrorNoRelationfound), it will be necessary to try again with an
+// increased precision.
 func New(Prec uint) *Pslq {
 	e := &Pslq{
 		prec:     Prec,
@@ -141,7 +161,8 @@ func (e *Pslq) SetMaxCoeff(maxcoeff *big.Int) *Pslq {
 }
 
 // SetMaxSteps sets the maximum number of steps of the algorithm to be
-// run default 100
+// run. Default 100.  Run will return ErrorIterationsExceeded if this
+// is too small.
 func (e *Pslq) SetMaxSteps(maxsteps int) *Pslq {
 	e.maxsteps = maxsteps
 	return e
@@ -195,7 +216,7 @@ func (e *Pslq) Sqrt(n, x *big.Float) {
 	}
 }
 
-// Sets res to nearest_int(x)
+// NearestInt set res to the nearest integer to x
 func (e *Pslq) NearestInt(x *big.Float, res *big.Int) {
 	prec := x.Prec()
 	var tmp big.Float
@@ -208,26 +229,20 @@ func (e *Pslq) NearestInt(x *big.Float, res *big.Int) {
 	tmp.Int(res)
 }
 
-// Given a vector of real numbers x = [x_0, x_1, ..., x_n], Pslq(x)
+// Given a vector of real numbers x = [x_0, x_1, ..., x_n], this
 // uses the PSLQ algorithm to find a list of integers
 // [c_0, c_1, ..., c_n] such that
 //
-//     |c_1 x_1 + c_2 x_2 + ... + c_n x_n| < tolerance
+//     |c_1 * x_1 + c_2 * x_2 + ... + c_n * x_n| < tolerance
 //
 // and such that max |c_k| < maxcoeff. If no such vector exists, Pslq
 // returns one of the errors in this package depending on whether it
 // has run out of iterations, precision or explored up to the
-// maxcoeff. The tolerance defaults to 3/4 of the precision of the
-// Environment passed in.
+// maxcoeff. The tolerance defaults to 3/4 of the precision.
 //
 // This is a fairly direct translation of the pseudocode given by
 // David Bailey, "The PSLQ Integer Relation Algorithm":
 // http://www.cecm.sfu.ca/organics/papers/bailey/paper/html/node3.html
-//
-// This implementation uses fixed-point instead of floating-point
-// arithmetic, since this is significantly faster.  This does
-// introduce some additional failure modes over the original paper
-// which should hopefully be covered correctly.
 //
 // If a result is returned, the first non-zero element will be positive
 func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
