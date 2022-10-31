@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +19,8 @@ import (
 var (
 	verbose              = flag.Bool("verbose", false, "Print lots of stuff while running")
 	iterations           = flag.Int("iterations", 1000, "Number of iterations to use max")
-	prec                 = flag.Uint("prec", 64, "Precision to use")
+	prec                 = flag.Uint("prec", 64, "Precision to use (bits)")
+	needFirst            = flag.Bool("need-first", false, "Retry if first entry is not used")
 	stdin      io.Reader = os.Stdin
 	stdout     io.Writer = os.Stdout
 )
@@ -35,6 +37,9 @@ is ignored, as are comment lines starting with '#'.
 If more than one file is passed in then they are concatenated
 
 If file is '-' then stdin will be read
+
+If -need-first is set then it will retry without items in the
+list of numbers until it finds a match with the first item included.
 
 Options:
 `)
@@ -85,6 +90,45 @@ func readFile(name string, xs []big.Float) []big.Float {
 	return read(in, xs)
 }
 
+// Do a single run of pslq with xs
+func run(p *pslq.Pslq, digits int, xs []big.Float) error {
+	result, err := p.Run(xs)
+	if err != nil {
+		return err
+	}
+	if *needFirst && result[0].Sign() == 0 {
+		// Need the first item in the results, so retry
+		// without each item in result in turn
+		for i := range result {
+			d := &result[i]
+			if d.Sign() != 0 {
+				// xs without i
+				xsCopy := append([]big.Float(nil), xs[:i]...)
+				xsCopy = append(xsCopy, xs[i+1:]...)
+				err := run(p, digits, xsCopy)
+				fmt.Printf("xs[%d] %v\n", len(xsCopy), err)
+				if err == nil {
+					// Have printed a result already so return
+					return nil
+				}
+				if err == pslq.ErrorPrecisionExhausted {
+					return err
+				}
+			}
+		}
+		return errors.New("couldn't find solution with the first item")
+	}
+	fmt.Fprintf(stdout, "Result is\n")
+	for i := range result {
+		d := &result[i]
+		if d.Sign() == 0 {
+			continue
+		}
+		fmt.Fprintf(stdout, "%d * %.*f\n", d, digits, &xs[i])
+	}
+	return nil
+}
+
 func main() {
 	flag.Usage = syntaxError
 	flag.Parse()
@@ -113,17 +157,9 @@ func main() {
 	}
 
 	pslq := pslq.New(*prec).SetMaxSteps(*iterations).SetVerbose(*verbose)
-	result, err := pslq.Run(xs)
+	err := run(pslq, digits, xs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "PSLQ failed: %v\n", err)
 		os.Exit(1)
-	}
-	fmt.Fprintf(stdout, "Result is\n")
-	for i := range result {
-		d := &result[i]
-		if d.Sign() == 0 {
-			continue
-		}
-		fmt.Fprintf(stdout, "%d * %.*f\n", d, digits, &xs[i])
 	}
 }
