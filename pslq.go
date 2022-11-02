@@ -261,7 +261,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 	}
 
 	if e.verbose {
-		log.Printf("PSLQ using prec %d and tol %g", e.prec, e.tol)
+		log.Printf("PSLQ using prec %d and tol %.10g", e.prec, &e.tol)
 	}
 
 	if e.tol.Sign() == 0 {
@@ -670,7 +670,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 					}
 					t := B[j][i]
 					if debug {
-						fmt.Printf("vec[%d]=%d\n", j-1, t)
+						fmt.Printf("vec[%d]=%d\n", j-1, &t)
 					}
 					vec[j-1] = t
 					if t.Sign() < 0 {
@@ -681,11 +681,11 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 					}
 				}
 				if debug {
-					fmt.Printf("maxc = %d, maxcoeff = %d\n", maxc, e.maxcoeff)
+					fmt.Printf("maxc = %d, maxcoeff = %d\n", &maxc, &e.maxcoeff)
 				}
 				if maxc.Cmp(&e.maxcoeff) < 0 {
 					if e.verbose {
-						log.Printf("FOUND relation at iter %d/%d, error: %g", REP, e.maxsteps, &err)
+						log.Printf("FOUND relation at iter %d/%d, Error: %16.10e", REP, e.maxsteps, &err)
 					}
 					// Find sign of first non zero item
 					sign := 0
@@ -736,7 +736,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 			tmp0.Int(&norm)
 		}
 		if e.verbose {
-			log.Printf("%2d/%2d:  Error: %g   Norm: %d", REP, e.maxsteps, &best_err, &norm)
+			log.Printf("%2d/%2d:  Error: %16.10e   Norm: %d", REP, e.maxsteps, &best_err, &norm)
 		}
 		if norm.Cmp(&e.maxcoeff) >= 0 {
 			if e.verbose {
