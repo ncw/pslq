@@ -10,8 +10,10 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"math/bits"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -179,6 +181,9 @@ func runTryAll(p *pslq.Pslq, xs []big.Float) error {
 		return errors.New("Can't have 64 or more items with -try-all")
 	}
 	trials := uint64(1) << len(xs)
+	if *needFirst {
+		trials >>= 1
+	}
 	found := uint64(0)
 
 	// Create worker routines
@@ -213,20 +218,42 @@ func runTryAll(p *pslq.Pslq, xs []big.Float) error {
 		}()
 	}
 
+	// Make a bitmask for each trial
+	// If *needFirst then lowest bit is always 0 (included)
+	masks := make([]uint64, trials)
 	for i := uint64(0); i < trials; i++ {
-		if *needFirst && (i&1) != 0 {
-			continue
+		if *needFirst {
+			masks[i] = i << 1
+		} else {
+			masks[i] = i
 		}
+	}
+
+	// Sort these bitmasks by number of bits set
+	//
+	// There is probably a cool way to produce this sequence
+	// directly without writing it out and sorting but I couldn't
+	// think of it!
+	sort.Slice(masks, func(i, j int) bool {
+		mi, mj := masks[i], masks[j]
+		diffOnes := bits.OnesCount64(mi) - bits.OnesCount64(mj)
+		if diffOnes != 0 {
+			return diffOnes < 0
+		}
+		return mi < mj
+	})
+
+	for i, mask := range masks {
 		now := time.Now()
 		if now.After(nextStat) {
 			dt := time.Since(start)
 			iterationsPerSecond := float64(i) / float64(dt) * float64(time.Second)
-			eta := time.Duration(float64(trials-i)/iterationsPerSecond) * time.Second
+			eta := time.Duration(float64(trials-uint64(i))/iterationsPerSecond) * time.Second
 			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v\n", i, trials, iterationsPerSecond, eta)
 			nextStat = nextStat.Add(statsPrintTime)
 		}
-		// Get the workers to calculate the i mask
-		in <- i
+		// Get the workers to calculate the mask
+		in <- mask
 	}
 	// Signal to workers they are finished
 	close(in)
