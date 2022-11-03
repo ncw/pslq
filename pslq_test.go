@@ -1,6 +1,7 @@
 package pslq
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"math/big"
@@ -8,7 +9,11 @@ import (
 	"testing"
 )
 
-const verbose = false
+var verbose = false
+
+func init() {
+	flag.BoolVar(&verbose, "verbose", false, "set for more output in the tests")
+}
 
 func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
 	if len(actual) < len(expected) {
@@ -23,6 +28,34 @@ func compareResult(t *testing.T, actual []big.Int, expected ...int64) {
 		}
 		if actual[i].Cmp(&e) != 0 {
 			t.Errorf("actual[%d]=%d != expected[%d]=%d", i, &actual[i], i, &e)
+		}
+	}
+}
+
+// check that the PSLQ actually found a relation
+func checkResult(t *testing.T, in []big.Float, out []big.Int) {
+	if len(in) != len(out) {
+		t.Fatalf("lengths wrong of answers got %d expecting %d", len(in), len(out))
+	}
+	prec := in[0].Prec()
+	var sum big.Float
+	sum.SetPrec(prec)
+	expectedPrecision := int(prec) - 1
+	for i := range in {
+		if out[i].Sign() == 0 {
+			continue
+		}
+		var tmp big.Float
+		tmp.SetPrec(prec)
+		tmp.SetInt(&out[i])
+		tmp.Mul(&tmp, &in[i])
+		sum.Add(&sum, &tmp)
+		expectedPrecision -= 1
+	}
+	if sum.Sign() != 0 {
+		sumExponent := -sum.MantExp(nil)
+		if sumExponent < expectedPrecision {
+			t.Errorf("Expecting to sum to 0 got %g instead with precision %d bits but wanted %d bits", &sum, sumExponent, expectedPrecision)
 		}
 	}
 }
@@ -184,6 +217,7 @@ func TestPslqSimple(t *testing.T) {
 		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 2, 1)
+	checkResult(t, in, out)
 }
 
 func TestPslq2(t *testing.T) {
@@ -208,6 +242,7 @@ func TestPslq2(t *testing.T) {
 		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 7, -21, -4, 0)
+	// checkResult(t, in, out) - float64's above have incorrect precision
 }
 
 func TestPslq3(t *testing.T) {
@@ -238,6 +273,7 @@ func TestPslq3(t *testing.T) {
 		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 7, -21, -4, 0, 0, 0, 0, 0, 0, 0)
+	// checkResult(t, in, out) - float64's above have incorrect precision
 }
 
 // Evaluates a BBP term
@@ -267,13 +303,14 @@ func bbp(prec uint, base, a, b int64, result *big.Float) {
 	}
 }
 
-func TestPslq4(t *testing.T) {
+// Original BBP series
+func TestPslqOriginalBBP(t *testing.T) {
 	prec := uint(64)
 
 	in := make([]big.Float, 8)
 	for i := range in {
 		if i == 0 {
-			in[i].SetPrec(prec).SetFloat64(math.Pi)
+			pi(prec, &in[i])
 		} else {
 			bbp(prec, 16, 8, int64(i), &in[i])
 		}
@@ -290,6 +327,63 @@ func TestPslq4(t *testing.T) {
 		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -4, 0, 0, 2, 1, 1, 0)
+	checkResult(t, in, out)
+}
+
+// New BBP series
+func TestPslqBBP64(t *testing.T) {
+	prec := uint(128)
+
+	in := make([]big.Float, 12)
+	for i := range in {
+		if i == 0 {
+			pi(prec, &in[i])
+		} else {
+			bbp(prec, -64, 12, int64(i), &in[i])
+		}
+		if verbose {
+			t.Logf("in[%d] = %g\n", i, &in[i])
+		}
+	}
+	pslq := New(prec).SetVerbose(verbose).SetMaxSteps(1000)
+	out, err := pslq.Run(in)
+	if err != nil {
+		t.Error("Got error", err)
+	}
+	if verbose {
+		printBigIntVector(t, "out", out)
+	}
+	// This isn't a Pi relation but it is what we find!
+	compareResult(t, out, 0, 0, 16, -16, -24, 0, 8, 4, 6, 6, 1, -1)
+	checkResult(t, in, out)
+}
+
+// Attempt to find Bellard's BBP series
+func TestPslqBellard(t *testing.T) {
+	prec := uint(1024)
+
+	in := make([]big.Float, 20)
+	for i := range in {
+		if i == 0 {
+			pi(prec, &in[i])
+		} else {
+			bbp(prec, -1024, 20, int64(i), &in[i])
+		}
+		if verbose {
+			t.Logf("in[%d] = %g\n", i, &in[i])
+		}
+	}
+	pslq := New(prec).SetVerbose(verbose).SetMaxSteps(10000).SetMaxCoeff(big.NewInt(1000000))
+	out, err := pslq.Run(in)
+	if err != nil {
+		t.Error("Got error", err)
+	}
+	if verbose {
+		printBigIntVector(t, "out", out)
+	}
+	// This isn't Bellard's formula but it is a valid formula for pi
+	compareResult(t, out, 192, -512, 0, -256, 0, -32, 0, 64, 0, -32, -40, -16, 0, 8, 0, -1, 0, -2, 0, -1)
+	checkResult(t, in, out)
 }
 
 // Print a vector
@@ -344,18 +438,18 @@ func TestPslqPiFail03(t *testing.T) { piFailTest(t, 128, 75, 3, ErrorIterationsE
 func TestPslqPiFail04(t *testing.T) { piFailTest(t, 128, 150, 3, ErrorNoRelationFound) }
 func TestPslqPiFail05(t *testing.T) { piFailTest(t, 128, 200, 10, ErrorPrecisionExhausted) }
 func TestPslqPiFail06(t *testing.T) { piFailTest(t, 256, 200, 10, ErrorIterationsExceeded) }
-func TestPslqPiFail07(t *testing.T) { piFailTest(t, 256, 1E8, 10, ErrorNoRelationFound) }
-func TestPslqPiFail08(t *testing.T) { piFailTest(t, 256, 1E8, 13, ErrorPrecisionExhausted) }
-func TestPslqPiFail09(t *testing.T) { piFailTest(t, 512, 1E8, 13, ErrorNoRelationFound) }
-func TestPslqPiFail10(t *testing.T) { piFailTest(t, 512, 1E8, 22, ErrorNoRelationFound) }
-func TestPslqPiFail11(t *testing.T) { piFailTest(t, 512, 1E8, 25, ErrorPrecisionExhausted) }
-func TestPslqPiFail12(t *testing.T) { piFailTest(t, 1024, 1E8, 25, ErrorNoRelationFound) }
-func TestPslqPiFail13(t *testing.T) { piFailTest(t, 1024, 1E8, 46, ErrorNoRelationFound) }
-func TestPslqPiFail14(t *testing.T) { piFailTest(t, 1024, 1E8, 49, ErrorPrecisionExhausted) }
-func TestPslqPiFail15(t *testing.T) { piFailTest(t, 2048, 1E8, 49, ErrorNoRelationFound) }
-func TestPslqPiFail16(t *testing.T) { piFailTest(t, 2048, 1E8, 98, ErrorNoRelationFound) }
-func TestPslqPiFail17(t *testing.T) { piFailTest(t, 2048, 1E8, 99, ErrorPrecisionExhausted) }
-func TestPslqPiFail18(t *testing.T) { piFailTest(t, 2048+64, 1E8, 99, ErrorNoRelationFound) }
+func TestPslqPiFail07(t *testing.T) { piFailTest(t, 256, 1e8, 10, ErrorNoRelationFound) }
+func TestPslqPiFail08(t *testing.T) { piFailTest(t, 256, 1e8, 13, ErrorPrecisionExhausted) }
+func TestPslqPiFail09(t *testing.T) { piFailTest(t, 512, 1e8, 13, ErrorNoRelationFound) }
+func TestPslqPiFail10(t *testing.T) { piFailTest(t, 512, 1e8, 22, ErrorNoRelationFound) }
+func TestPslqPiFail11(t *testing.T) { piFailTest(t, 512, 1e8, 25, ErrorPrecisionExhausted) }
+func TestPslqPiFail12(t *testing.T) { piFailTest(t, 1024, 1e8, 25, ErrorNoRelationFound) }
+func TestPslqPiFail13(t *testing.T) { piFailTest(t, 1024, 1e8, 46, ErrorNoRelationFound) }
+func TestPslqPiFail14(t *testing.T) { piFailTest(t, 1024, 1e8, 49, ErrorPrecisionExhausted) }
+func TestPslqPiFail15(t *testing.T) { piFailTest(t, 2048, 1e8, 49, ErrorNoRelationFound) }
+func TestPslqPiFail16(t *testing.T) { piFailTest(t, 2048, 1e8, 98, ErrorNoRelationFound) }
+func TestPslqPiFail17(t *testing.T) { piFailTest(t, 2048, 1e8, 99, ErrorPrecisionExhausted) }
+func TestPslqPiFail18(t *testing.T) { piFailTest(t, 2048+64, 1e8, 99, ErrorNoRelationFound) }
 
 func TestPslqPiFail20(t *testing.T) { piFailTest(t, 67, 721, 12, ErrorPrecisionExhausted) }
 
@@ -396,9 +490,9 @@ func piFailBench(b *testing.B, prec uint, iterations int, logMaxCoeff int64) {
 }
 
 func BenchmarkPslqPiFail128(b *testing.B)  { piFailBench(b, 128, 150, 3) }
-func BenchmarkPslqPiFail256(b *testing.B)  { piFailBench(b, 256, 1E8, 10) }
-func BenchmarkPslqPiFail512(b *testing.B)  { piFailBench(b, 512, 1E8, 22) }
-func BenchmarkPslqPiFail1024(b *testing.B) { piFailBench(b, 1024, 1E8, 46) }
+func BenchmarkPslqPiFail256(b *testing.B)  { piFailBench(b, 256, 1e8, 10) }
+func BenchmarkPslqPiFail512(b *testing.B)  { piFailBench(b, 512, 1e8, 22) }
+func BenchmarkPslqPiFail1024(b *testing.B) { piFailBench(b, 1024, 1e8, 46) }
 
 // FIXME try bpp base 100 as well? and 16?
 
@@ -418,7 +512,7 @@ func XXXXTestPslq4b(t *testing.T) {
 			t.Logf("in[%d] = %g\n", i, &in[i])
 		}
 	}
-	pslq := New(prec).SetMaxCoeff(big.NewInt(1E18)).SetMaxSteps(1E6).SetVerbose(verbose)
+	pslq := New(prec).SetMaxCoeff(big.NewInt(1e18)).SetMaxSteps(1e6).SetVerbose(verbose)
 	out, err := pslq.Run(in)
 	if err == nil || err.Error() != "could not find an integer relation" {
 		t.Errorf("Wrong error %v", err)
@@ -472,7 +566,7 @@ func TestPslq5(t *testing.T) {
 	prec := uint(64)
 
 	in := make([]big.Float, 8)
-	in[0].SetPrec(prec).SetFloat64(math.Pi)
+	pi(prec, &in[0])
 	acot(prec, 2, &in[1])
 	acot(prec, 4, &in[2])
 	acot(prec, 6, &in[3])
@@ -489,13 +583,14 @@ func TestPslq5(t *testing.T) {
 		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -8, 0, 0, 4, 0, 0, 0)
+	checkResult(t, in, out)
 }
 
 func TestPslq6(t *testing.T) {
 	prec := uint(64)
 
 	in := make([]big.Float, 3)
-	in[0].SetPrec(prec).SetFloat64(math.Pi / 4)
+	pi(prec, &in[0])
 	acot(prec, 5, &in[1])
 	acot(prec, 239, &in[2])
 	pslq := New(prec).SetMaxSteps(1000).SetVerbose(verbose)
@@ -506,14 +601,15 @@ func TestPslq6(t *testing.T) {
 	if verbose {
 		printBigIntVector(t, "out", out)
 	}
-	compareResult(t, out, 1, -4, 1)
+	compareResult(t, out, 1, -16, 4)
+	checkResult(t, in, out)
 }
 
 func TestPslq7(t *testing.T) {
 	prec := uint(64)
 
 	in := make([]big.Float, 5)
-	in[0].SetPrec(prec).SetFloat64(math.Pi / 4)
+	pi(prec, &in[0])
 	acot(prec, 49, &in[1])
 	acot(prec, 57, &in[2])
 	acot(prec, 239, &in[3])
@@ -526,7 +622,8 @@ func TestPslq7(t *testing.T) {
 	if verbose {
 		printBigIntVector(t, "out", out)
 	}
-	compareResult(t, out, 1, -12, -32, 5, -12)
+	compareResult(t, out, 1, -48, -128, 20, -48)
+	checkResult(t, in, out)
 }
 
 func TestPslq8(t *testing.T) {
@@ -552,4 +649,5 @@ func TestPslq8(t *testing.T) {
 		printBigIntVector(t, "out", out)
 	}
 	compareResult(t, out, 1, -4, 0, 0, 2, 1, 1)
+	checkResult(t, in, out)
 }

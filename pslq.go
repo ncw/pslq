@@ -76,11 +76,15 @@ func min(a, b int) int {
 	return b
 }
 
-// Make a new matrix with that many rows and that many cols
-func newMatrix(rows, cols int) [][]big.Float {
+// Make a new matrix with that many rows and that many cols with the
+// provided precision
+func newMatrix(rows, cols int, prec uint) [][]big.Float {
 	M := make([][]big.Float, rows)
 	for i := 0; i < cols; i++ {
 		M[i] = make([]big.Float, cols)
+		for j := range M[i] {
+			M[i][j].SetPrec(prec)
+		}
 	}
 	return M
 }
@@ -99,7 +103,7 @@ func printMatrix(name string, X [][]big.Float) {
 	n := len(X) - 1
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %f\n", name, i, j, &X[i][j])
+			fmt.Printf("%s[%d,%d] = %f (prec = %d)\n", name, i, j, &X[i][j], X[i][j].Prec())
 		}
 		fmt.Printf("\n")
 	}
@@ -122,7 +126,7 @@ func printVector(name string, x []big.Float) {
 		if i == 0 {
 			continue
 		}
-		fmt.Printf("%s[%d] = %f\n", name, i, &x[i])
+		fmt.Printf("%s[%d] = %f (prec = %d)\n", name, i, &x[i], x[i].Prec())
 	}
 }
 
@@ -312,7 +316,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 	}
 	A := newBigIntMatrix(n+1, n+1)
 	B := newBigIntMatrix(n+1, n+1)
-	H := newMatrix(n+1, n+1)
+	H := newMatrix(n+1, n+1, e.prec)
 	// Initialization Step 1
 	//
 	// Set the n×n matrices A and B to the identity.
@@ -349,7 +353,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 	}
 	for k := 1; k <= n; k++ {
 		var t big.Float
-		t.SetInt64(0)
+		t.SetPrec(e.prec).SetInt64(0)
 		for j := k; j <= n; j++ {
 			tmp0.Mul(&x[j], &x[j])
 			t.Add(&t, tmp0)
@@ -493,7 +497,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 			absH.Abs(&H[i][i])
 			var sz big.Float
 			sz.Mul(&γPower, &absH)
-			// sz := (g**i * abs(h)) >> (prec * (i - 1))
+			// sz := γ**i * abs(H(i,i)))
 			if sz.Cmp(&szmax) > 0 {
 				m = i
 				szmax.Set(&sz)
@@ -556,11 +560,11 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 				var t3, t4 big.Float
 				t3.Set(&H[i][m])
 				t4.Set(&H[i][m+1])
-				// H[i][m] = (t1*t3 + t2*t4) >> prec
+				// H[i][m] = t1*t3 + t2*t4
 				tmp0.Mul(&t1, &t3)
 				tmp1.Mul(&t2, &t4)
 				H[i][m].Add(tmp0, tmp1)
-				// H[i][m+1] = (-t2*t3 + t1*t4) >> prec
+				// H[i][m+1] = -t2*t3 + t1*t4
 				tmp0.Mul(&t2, &t3)
 				tmp1.Mul(&t1, &t4)
 				H[i][m+1].Sub(tmp1, tmp0)
