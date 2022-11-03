@@ -45,6 +45,9 @@ Usage pslq [Options] <file>
 Where file should contain decimal numbers, one per line.  White space
 is ignored, as are comment lines starting with '#'.
 
+The comment immediately before a the number will be taken as its name
+if it is present and printed in the results.
+
 If more than one file is passed in then they are concatenated
 
 If file is '-' then stdin will be read
@@ -68,14 +71,19 @@ func fatalf(message string, args ...interface{}) {
 	os.Exit(1)
 }
 
-// Read lines from in as big.Float
-func read(in io.Reader, xs []big.Float) []big.Float {
+// Read lines from in as big.Float with a name
+func read(in io.Reader, xs []big.Float, names []string) ([]big.Float, []string) {
 	scanner := bufio.NewScanner(in)
+	name := ""
 	for scanner.Scan() {
 		var x big.Float
 		x.SetPrec(*prec)
 		text := strings.TrimSpace(scanner.Text())
-		if len(text) == 0 || text[0] == '#' {
+		if len(text) == 0 {
+			continue
+		}
+		if text[0] == '#' {
+			name = strings.TrimSpace(text[1:])
 			continue
 		}
 		_, ok := x.SetString(text)
@@ -83,26 +91,31 @@ func read(in io.Reader, xs []big.Float) []big.Float {
 			log.Fatalf("Failed to parse line %q", text)
 		}
 		xs = append(xs, x)
+		if name == "" {
+			name = fmt.Sprintf("x[%d]", len(xs)-1)
+		}
+		names = append(names, name)
+		name = ""
 	}
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("Error reading input: %v", err)
 	}
-	return xs
+	return xs, names
 }
 
 // Read lines from the file name as big.Float
 //
 // if name is '-' then reads from stdin
-func readFile(name string, xs []big.Float) []big.Float {
+func readFile(name string, xs []big.Float, names []string) ([]big.Float, []string) {
 	if name == "-" {
-		return read(stdin, xs)
+		return read(stdin, xs, names)
 	}
 	in, err := os.Open(name)
 	if err != nil {
 		log.Fatalf("Error opening file %q: %v", name, err)
 	}
 	defer in.Close()
-	return read(in, xs)
+	return read(in, xs, names)
 }
 
 // Sum the relation PSLQ found
@@ -129,7 +142,7 @@ var (
 )
 
 // Returns true if the result hasn't been seen before
-func printResults(p *pslq.Pslq, xs []big.Float, result []big.Int) bool {
+func printResults(p *pslq.Pslq, xs []big.Float, names []string, result []big.Int) bool {
 	printResultsMu.Lock()
 	defer printResultsMu.Unlock()
 	var out strings.Builder
@@ -140,14 +153,45 @@ func printResults(p *pslq.Pslq, xs []big.Float, result []big.Int) bool {
 			terms++
 		}
 	}
-	fmt.Fprintf(&out, "Result with %d terms is:\n", terms)
+	fmt.Fprintf(&out, "\nResult with %d terms is:\n", terms)
+	// Print numerically
 	for i := range result {
 		d := &result[i]
 		if d.Sign() == 0 {
 			continue
 		}
-		fmt.Fprintf(&out, "%d * %.*f\n", d, digits, &xs[i])
+		fmt.Fprintf(&out, "%+d * %.*f\n", d, digits, &xs[i])
 	}
+	// Print symbolically
+	for i := range result {
+		d := &result[i]
+		if d.Sign() == 0 {
+			continue
+		}
+		if i != 0 && *needFirst {
+			tmp := new(big.Int)
+			tmp.Neg(d)
+			d = tmp
+		}
+		fmt.Fprintf(&out, "%+d * %s ", d, names[i])
+		if i == 0 && *needFirst {
+			fmt.Fprintf(&out, "= ")
+		}
+	}
+	if !*needFirst {
+		fmt.Fprintf(&out, "= 0")
+	}
+	fmt.Fprintln(&out)
+	// Print vector
+	fmt.Fprintf(&out, "Vector = [ ")
+	for i := range result {
+		d := &result[i]
+		fmt.Fprintf(&out, "%d", d)
+		if i != len(result)-1 {
+			fmt.Fprintf(&out, ", ")
+		}
+	}
+	fmt.Fprintf(&out, " ]\n")
 	if _, found := printedResults[out.String()]; !found {
 		fmt.Fprintf(stdout, "%s", out.String())
 		fmt.Fprintf(stdout, "Result is accurate to %.5g\n", sumResult(xs, result))
@@ -160,7 +204,7 @@ func printResults(p *pslq.Pslq, xs []big.Float, result []big.Int) bool {
 }
 
 // Do a single run of pslq with xs
-func run(p *pslq.Pslq, xs []big.Float) error {
+func run(p *pslq.Pslq, xs []big.Float, names []string) error {
 	result, err := p.Run(xs)
 	if err != nil {
 		return err
@@ -174,7 +218,9 @@ func run(p *pslq.Pslq, xs []big.Float) error {
 				// xs without i
 				xsCopy := append([]big.Float(nil), xs[:i]...)
 				xsCopy = append(xsCopy, xs[i+1:]...)
-				err := run(p, xsCopy)
+				namesCopy := append([]string(nil), names[:i]...)
+				namesCopy = append(namesCopy, names[i+1:]...)
+				err := run(p, xsCopy, namesCopy)
 				fmt.Printf("xs[%d] %v\n", len(xsCopy), err)
 				if err == nil {
 					// Have printed a result already so return
@@ -187,12 +233,12 @@ func run(p *pslq.Pslq, xs []big.Float) error {
 		}
 		return errors.New("couldn't find solution with the first item")
 	}
-	printResults(p, xs, result)
+	printResults(p, xs, names, result)
 	return nil
 }
 
 // Do an All run of pslq with xs
-func runTryAll(p *pslq.Pslq, xs []big.Float) error {
+func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 	const statsPrintTime = 10 * time.Second
 	start := time.Now()
 	nextStat := time.Now().Add(statsPrintTime)
@@ -204,6 +250,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float) error {
 		trials >>= 1
 	}
 	found := uint64(0)
+	total := uint64(0)
 
 	// Create worker routines
 	in := make(chan uint64, *workers)
@@ -213,11 +260,18 @@ func runTryAll(p *pslq.Pslq, xs []big.Float) error {
 		go func() {
 			defer wg.Done()
 			xsCopy := make([]big.Float, len(xs))
+			namesCopy := make([]string, len(names))
+			index := make([]int, len(xs))
+			unscrambledResults := make([]big.Int, len(xs))
 			for i := range in {
 				xsCopy = xsCopy[:0]
+				namesCopy = namesCopy[:0]
+				index = index[:0]
 				for j := range xs {
 					if ((1 << j) & i) == 0 {
 						xsCopy = append(xsCopy, xs[j])
+						namesCopy = append(namesCopy, names[j])
+						index = append(index, j)
 					}
 				}
 				result, err := p.Run(xsCopy)
@@ -230,7 +284,15 @@ func runTryAll(p *pslq.Pslq, xs []big.Float) error {
 				if *needFirst && result[0].Sign() == 0 {
 					continue
 				}
-				if printResults(p, xsCopy, result) {
+				for i := range unscrambledResults {
+					unscrambledResults[i] = big.Int{}
+				}
+				for i, j := range index {
+					unscrambledResults[j] = result[i]
+				}
+				atomic.AddUint64(&total, 1)
+				//if printResults(p, xsCopy, namesCopy, result) {
+				if printResults(p, xs, names, unscrambledResults) {
 					atomic.AddUint64(&found, 1)
 				}
 			}
@@ -278,7 +340,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float) error {
 	close(in)
 	// Wait for workers to exit
 	wg.Wait()
-	fmt.Fprintf(stdout, "Found %d results\n", found)
+	fmt.Fprintf(stdout, "\nFound %d unique results out of %d total results\n", found, total)
 	if found == 0 {
 		return errors.New("No results found with -try-all")
 	}
@@ -293,8 +355,9 @@ func main() {
 		fatalf("No input supplied\n")
 	}
 	var xs []big.Float
+	var names []string
 	for _, arg := range args {
-		xs = readFile(arg, xs)
+		xs, names = readFile(arg, xs, names)
 	}
 	// Set the max precision
 	if *prec == 0 {
@@ -309,7 +372,7 @@ func main() {
 	fmt.Fprintf(stdout, "Using precision %d\n", *prec)
 	for i := range xs {
 		x := &xs[i]
-		fmt.Fprintf(stdout, "x[%d] = %*.*f\n", i, digits+6, digits, x)
+		fmt.Fprintf(stdout, "%s = %.*f\n", names[i], digits, x)
 	}
 
 	// max coefficient is 2^logMaxCoeff
@@ -319,9 +382,9 @@ func main() {
 	pslq := pslq.New(*prec).SetMaxSteps(*iterations).SetVerbose(*verbose).SetMaxCoeff(maxCoeff).SetTarget(uint(float64(*prec) * (*targetPrecision)))
 	var err error
 	if *tryAll {
-		err = runTryAll(pslq, xs)
+		err = runTryAll(pslq, xs, names)
 	} else {
-		err = run(pslq, xs)
+		err = run(pslq, xs, names)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "PSLQ failed: %v\n", err)
