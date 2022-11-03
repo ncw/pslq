@@ -13,7 +13,6 @@ import (
 	"math/bits"
 	"os"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -237,6 +236,34 @@ func run(p *pslq.Pslq, xs []big.Float, names []string) error {
 	return nil
 }
 
+// Iterate through numbers < 1<<b in number of bits set order
+//
+// When the iteration is finished it returns 0
+//
+// Given an n (current number) and b (highest bit to be set) this
+// returns the next number. This will have the same number of bits set
+// as n unless there are no more numbers with that many bits.
+func next(n uint64, b int) uint64 {
+	if n == 0 {
+		return 1
+	}
+	lo := n & -n           // lowest one bit
+	lz := (n + lo) & ^n    // lowest zero bit above lo
+	n |= lz                // add lz to the set
+	n &= ^(lz - 1)         // reset bits below lz
+	n |= (lz / lo / 2) - 1 // put back right number of bits at end
+	// If we exceed bits, start next count
+	if n > ((1 << b) - 1) {
+		newBits := bits.OnesCount64(n) + 1
+		if newBits > b {
+			// reset
+			return 0
+		}
+		n = (1 << newBits) - 1
+	}
+	return n
+}
+
 // Do an All run of pslq with xs
 func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 	const statsPrintTime = 10 * time.Second
@@ -246,8 +273,10 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 		return errors.New("Can't have 64 or more items with -try-all")
 	}
 	trials := uint64(1) << len(xs)
+	trialsBits := len(xs)
 	if *needFirst {
 		trials >>= 1
+		trialsBits -= 1
 	}
 	found := uint64(0)
 	total := uint64(0)
@@ -299,32 +328,9 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 		}()
 	}
 
-	// Make a bitmask for each trial
-	// If *needFirst then lowest bit is always 0 (included)
-	masks := make([]uint64, trials)
+	// Bitmask for each trial
+	mask := uint64(0)
 	for i := uint64(0); i < trials; i++ {
-		if *needFirst {
-			masks[i] = i << 1
-		} else {
-			masks[i] = i
-		}
-	}
-
-	// Sort these bitmasks by number of bits set
-	//
-	// There is probably a cool way to produce this sequence
-	// directly without writing it out and sorting but I couldn't
-	// think of it!
-	sort.Slice(masks, func(i, j int) bool {
-		mi, mj := masks[i], masks[j]
-		diffOnes := bits.OnesCount64(mi) - bits.OnesCount64(mj)
-		if diffOnes != 0 {
-			return diffOnes < 0
-		}
-		return mi < mj
-	})
-
-	for i, mask := range masks {
 		now := time.Now()
 		if now.After(nextStat) {
 			dt := time.Since(start)
@@ -333,8 +339,14 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v\n", i, trials, iterationsPerSecond, eta)
 			nextStat = nextStat.Add(statsPrintTime)
 		}
+		// If needFirst is set we always want the first item in the mask
+		workerMask := mask
+		if *needFirst {
+			workerMask = mask << 1
+		}
 		// Get the workers to calculate the mask
-		in <- mask
+		in <- workerMask
+		mask = next(mask, trialsBits)
 	}
 	// Signal to workers they are finished
 	close(in)
