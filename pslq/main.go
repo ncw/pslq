@@ -105,6 +105,24 @@ func readFile(name string, xs []big.Float) []big.Float {
 	return read(in, xs)
 }
 
+// Sum the relation PSLQ found
+func sumResult(xs []big.Float, result []big.Int) *big.Float {
+	prec := xs[0].Prec()
+	var sum = new(big.Float)
+	sum.SetPrec(prec)
+	for i := range xs {
+		if result[i].Sign() == 0 {
+			continue
+		}
+		var tmp big.Float
+		tmp.SetPrec(prec)
+		tmp.SetInt(&result[i])
+		tmp.Mul(&tmp, &xs[i])
+		sum.Add(sum, &tmp)
+	}
+	return sum
+}
+
 var (
 	printedResults = make(map[string]struct{})
 	printResultsMu sync.Mutex
@@ -132,6 +150,7 @@ func printResults(p *pslq.Pslq, xs []big.Float, result []big.Int) bool {
 	}
 	if _, found := printedResults[out.String()]; !found {
 		fmt.Fprintf(stdout, "%s", out.String())
+		fmt.Fprintf(stdout, "Result is accurate to %.5g\n", sumResult(xs, result))
 		printedResults[out.String()] = struct{}{}
 	} else {
 		//fmt.Fprintf(stdout, "Duplicate found\n")
