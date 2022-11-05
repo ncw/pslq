@@ -297,7 +297,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 		}
 	}
 	x = xNew
-	if debug {
+	if e.verbose {
 		printVector("x", x)
 	}
 
