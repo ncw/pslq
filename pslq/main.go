@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"math/bits"
+	"math/rand"
 	"os"
 	"runtime"
 	"strings"
@@ -29,6 +30,7 @@ var (
 	needFirst                 = flag.Bool("need-first", false, "Retry if first entry is not used")
 	targetPrecision           = flag.Float64("target-precision", 0.75, "Target precision of the result as fraction of prec")
 	tryAll                    = flag.Bool("try-all", false, "Try all combinations of input until solution found")
+	tryAllRandom              = flag.Bool("try-all-random", false, "If set, uses random masks for -try-all")
 	workers                   = flag.Int("workers", runtime.NumCPU(), "Use this many threads in -try-all")
 	stdin           io.Reader = os.Stdin
 	stdout          io.Writer = os.Stdout
@@ -280,6 +282,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 	}
 	found := uint64(0)
 	total := uint64(0)
+	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Create worker routines
 	in := make(chan uint64, *workers)
@@ -293,6 +296,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 			index := make([]int, len(xs))
 			unscrambledResults := make([]big.Int, len(xs))
 			for i := range in {
+				// fmt.Printf("Starting run with mask %0*b\n", trialsBits, i)
 				xsCopy = xsCopy[:0]
 				namesCopy = namesCopy[:0]
 				index = index[:0]
@@ -336,7 +340,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 			dt := time.Since(start)
 			iterationsPerSecond := float64(i) / float64(dt) * float64(time.Second)
 			eta := time.Duration(float64(trials-uint64(i))/iterationsPerSecond) * time.Second
-			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v\n", i, trials, iterationsPerSecond, eta)
+			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v, Unique %d/%d\n", i, trials, iterationsPerSecond, eta, atomic.LoadUint64(&found), atomic.LoadUint64(&total))
 			nextStat = nextStat.Add(statsPrintTime)
 		}
 		// If needFirst is set we always want the first item in the mask
@@ -346,7 +350,11 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 		}
 		// Get the workers to calculate the mask
 		in <- workerMask
-		mask = next(mask, trialsBits)
+		if *tryAllRandom {
+			mask = random.Uint64() & (trials - 1)
+		} else {
+			mask = next(mask, trialsBits)
+		}
 	}
 	// Signal to workers they are finished
 	close(in)
