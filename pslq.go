@@ -98,12 +98,17 @@ func newBigIntMatrix(rows, cols int) [][]big.Int {
 	return M
 }
 
+// Return how many decimal digits we should print given a given binary precision
+func digits(prec uint) uint {
+	return uint(math.Ceil(math.Log10(2) * float64(prec)))
+}
+
 // Print a matrix
 func printMatrix(name string, X [][]big.Float) {
 	n := len(X) - 1
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %f (prec = %d)\n", name, i, j, &X[i][j], X[i][j].Prec())
+			fmt.Printf("%s[%d,%d] = %.*f (prec = %d)\n", name, i, j, digits(X[i][j].Prec()), &X[i][j], X[i][j].Prec())
 		}
 		fmt.Printf("\n")
 	}
@@ -126,7 +131,7 @@ func printVector(name string, x []big.Float) {
 		if i == 0 {
 			continue
 		}
-		fmt.Printf("%s[%d] = %f (prec = %d)\n", name, i, &x[i], x[i].Prec())
+		fmt.Printf("%s[%d] = %.*f (prec = %d)\n", name, i, digits(x[i].Prec()), &x[i], x[i].Prec())
 	}
 }
 
