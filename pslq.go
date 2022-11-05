@@ -692,7 +692,10 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 				if debug {
 					fmt.Printf("maxc = %d, maxcoeff = %d\n", &maxc, &e.maxcoeff)
 				}
-				if maxc.Cmp(&e.maxcoeff) < 0 {
+
+				// Don't bother checking maxcoeff - if we've found a relation, even
+				// slightly outside maxcoeff, then let's report it
+				if true || maxc.Cmp(&e.maxcoeff) < 0 {
 					if e.verbose {
 						log.Printf("FOUND relation at iter %d/%d, Error: %16.10e", REP, e.maxsteps, &err)
 					}
