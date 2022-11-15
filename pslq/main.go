@@ -282,6 +282,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 	}
 	found := uint64(0)
 	total := uint64(0)
+	badRelation := uint64(0)
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Create worker routines
@@ -315,6 +316,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 					continue
 				}
 				if *needFirst && result[0].Sign() == 0 {
+					atomic.AddUint64(&badRelation, 1)
 					continue
 				}
 				for i := range unscrambledResults {
@@ -340,7 +342,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 			dt := time.Since(start)
 			iterationsPerSecond := float64(i) / float64(dt) * float64(time.Second)
 			eta := time.Duration(float64(trials-uint64(i))/iterationsPerSecond) * time.Second
-			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v, Unique %d/%d\n", i, trials, iterationsPerSecond, eta, atomic.LoadUint64(&found), atomic.LoadUint64(&total))
+			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v, Unique %d/%d, Bad %d\n", i, trials, iterationsPerSecond, eta, atomic.LoadUint64(&found), atomic.LoadUint64(&total), atomic.LoadUint64(&badRelation))
 			nextStat = nextStat.Add(statsPrintTime)
 		}
 		// If needFirst is set we always want the first item in the mask
