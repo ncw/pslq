@@ -2,7 +2,6 @@ package pslq
 
 import (
 	"flag"
-	"fmt"
 	"math"
 	"math/big"
 	"math/rand"
@@ -58,83 +57,6 @@ func checkResult(t *testing.T, in []big.Float, out []big.Int) {
 			t.Errorf("Expecting to sum to 0 got %g instead with precision %d bits but wanted %d bits", &sum, sumExponent, expectedPrecision)
 		}
 	}
-}
-
-func TestSqrt(t *testing.T) {
-	tests := []struct {
-		prec uint
-		in   float64
-	}{
-		{16, 0},
-		{16, 1},
-		{16, 4},
-		{16, 10000},
-		{16, 2},
-		{64, 2},
-		{256, 2},
-		{1024, 1.5},
-	}
-	for _, test := range tests {
-		x := new(big.Float).SetPrec(test.prec)
-		x.SetFloat64(test.in)
-		var got, got2, diff big.Float
-		pslq := New(test.prec)
-		pslq.Sqrt(x, &got)
-		got2.SetPrec(test.prec).Mul(&got, &got)
-		diff.Sub(&got2, x)
-		if diff.MinPrec() > 1 {
-			t.Errorf("sqrt(%f) prec %d wrong got %.20f square %.20f expecting %f diff %g minprec %d", test.in, test.prec, &got, &got2, x, &diff, diff.MinPrec())
-		}
-	}
-}
-
-func TestSqrt2HighPrecision(t *testing.T) {
-	prec := uint(100/math.Log10(2)) + 1 // 100 decimal digits
-	x := new(big.Float).SetPrec(prec).SetInt64(2)
-	out := new(big.Float).SetPrec(prec)
-	pslq := New(prec)
-	pslq.Sqrt(x, out)
-	result := fmt.Sprintf("%.100f", out)
-	expected := "1.4142135623730950488016887242096980785696718753769480731766797379907324784621070388503875343276415727"
-	if result != expected {
-		t.Errorf("100 digits of Sqrt(2) wrong\nExpected %q\nActual   %q", expected, result)
-	}
-}
-
-func TestSqrt3HighPrecision(t *testing.T) {
-	prec := uint(1000/math.Log10(2)) + 1 // 1000 decimal digits
-	x := new(big.Float).SetPrec(prec).SetInt64(3)
-	out := new(big.Float).SetPrec(prec)
-	pslq := New(prec)
-	pslq.Sqrt(x, out)
-	result := fmt.Sprintf("%.1000f", out)
-	expected := "1.7320508075688772935274463415058723669428052538103806280558069794519330169088000370811461867572485756756261414154067030299699450949989524788116555120943736485280932319023055820679748201010846749232650153123432669033228866506722546689218379712270471316603678615880190499865373798593894676503475065760507566183481296061009476021871903250831458295239598329977898245082887144638329173472241639845878553976679580638183536661108431737808943783161020883055249016700235207111442886959909563657970871684980728994932964842830207864086039887386975375823173178313959929830078387028770539133695633121037072640192491067682311992883756411414220167427521023729942708310598984594759876642888977961478379583902288548529035760338528080643819723446610596897228728652641538226646984200211954841552784411812865345070351916500166892944154808460712771439997629268346295774383618951101271486387469765459824517885509753790138806649619119622229571105552429237231921977382625616314688420328537166829386496119170497388363954959381"
-	if result != expected {
-		t.Errorf("1000 digits of Sqrt(3) wrong\nExpected %q\nActual   %q", expected, result)
-	}
-}
-
-func checkErr(t *testing.T, err interface{}, expectedMsg string) {
-	if err != nil {
-		msg, ok := err.(string)
-		if !ok {
-			t.Error("expecting string error")
-			return
-		}
-		if msg != expectedMsg {
-			t.Errorf("wrong error returned %q expecting %q", msg, expectedMsg)
-		}
-	} else {
-		t.Error("expecting panic but didn't get one")
-	}
-}
-
-func TestSqrtNegative(t *testing.T) {
-	defer func() { checkErr(t, recover(), "Sqrt of negative number") }()
-	x := new(big.Float).SetInt64(-2)
-	var z big.Float
-	pslq := New(64)
-	pslq.Sqrt(x, &z)
 }
 
 func TestErrorBadArguments(t *testing.T) {

@@ -186,45 +186,6 @@ func (e *Pslq) SetTarget(target uint) *Pslq {
 	return e
 }
 
-// Compute the square root of n using Newton's Method. We start with
-// an initial estimate for sqrt(n), and then iterate
-//     x_{i+1} = 1/2 * ( x_i + (n / x_i) )
-// Result is returned in x
-func (e *Pslq) Sqrt(n, x *big.Float) {
-	if n == x {
-		panic("need distinct input and output")
-	}
-	if n.Sign() == 0 {
-		x.Set(n)
-		return
-	} else if n.Sign() < 0 {
-		panic("Sqrt of negative number")
-	}
-	prec := n.Prec()
-
-	// Use the floating point square root as initial estimate
-	nFloat64, _ := n.Float64()
-	x.SetPrec(prec).SetFloat64(math.Sqrt(nFloat64))
-
-	// We use t as a temporary variable. There's no need to set its precision
-	// since big.Float values with unset (== 0) precision automatically assume
-	// the largest precision of the arguments when used as the result (receiver)
-	// of a big.Float operation.
-	var t big.Float
-
-	// Iterate.
-	for {
-		t.Quo(n, x)        // t = n / x_i
-		t.Add(x, &t)       // t = x_i + (n / x_i)
-		t.Mul(&e.half, &t) // x_{i+1} = 0.5 * t
-		if x.Cmp(&t) == 0 {
-			// Exit loop if no change to result
-			break
-		}
-		x.Set(&t)
-	}
-}
-
 // NearestInt set res to the nearest integer to x
 func (e *Pslq) NearestInt(x *big.Float, res *big.Int) {
 	prec := x.Prec()
@@ -311,11 +272,11 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 		return nil, ErrorArgumentTooSmall
 	}
 
-	tmp0.SetInt64(4)
-	tmp1.SetInt64(3)
+	tmp0.SetInt64(4).SetPrec(e.prec)
+	tmp1.SetInt64(3).SetPrec(e.prec)
 	tmp0.Quo(tmp0, tmp1)
 	var γ big.Float
-	e.Sqrt(tmp0, &γ) // sqrt(4<<prec)/3)
+	γ.Sqrt(tmp0) // sqrt(4<<prec)/3)
 	if debug {
 		fmt.Printf("γ = %f\n", &γ)
 	}
@@ -363,7 +324,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 			tmp0.Mul(&x[j], &x[j])
 			t.Add(&t, tmp0)
 		}
-		e.Sqrt(&t, &s[k])
+		s[k].SetPrec(e.prec).Sqrt(&t)
 	}
 	if debug {
 		fmt.Println("Init Step 2")
@@ -553,7 +514,7 @@ func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
 			tmp1.Mul(&H[m][m+1], &H[m][m+1])
 			tmp0.Add(tmp0, tmp1)
 			var t0 big.Float
-			e.Sqrt(tmp0, &t0)
+			t0.Sqrt(tmp0)
 			// Precision probably exhausted
 			if t0.Sign() == 0 {
 				return nil, ErrorPrecisionExhausted
