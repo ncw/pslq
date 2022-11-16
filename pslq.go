@@ -30,7 +30,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"math/big"
 )
 
@@ -60,79 +59,6 @@ type Pslq struct {
 	verbose     bool
 	one         big.Float
 	half        big.Float
-}
-
-func max(a, b int) int {
-	if a >= b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a <= b {
-		return a
-	}
-	return b
-}
-
-// Make a new matrix with that many rows and that many cols with the
-// provided precision
-func newMatrix(rows, cols int, prec uint) [][]big.Float {
-	M := make([][]big.Float, rows)
-	for i := 0; i < cols; i++ {
-		M[i] = make([]big.Float, cols)
-		for j := range M[i] {
-			M[i][j].SetPrec(prec)
-		}
-	}
-	return M
-}
-
-// Make a new matrix with that many rows and that many cols
-func newBigIntMatrix(rows, cols int) [][]big.Int {
-	M := make([][]big.Int, rows)
-	for i := 0; i < cols; i++ {
-		M[i] = make([]big.Int, cols)
-	}
-	return M
-}
-
-// Return how many decimal digits we should print given a given binary precision
-func digits(prec uint) uint {
-	return uint(math.Ceil(math.Log10(2) * float64(prec)))
-}
-
-// Print a matrix
-func printMatrix(name string, X [][]big.Float) {
-	n := len(X) - 1
-	for i := 1; i <= n; i++ {
-		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %.*f (prec = %d)\n", name, i, j, digits(X[i][j].Prec()), &X[i][j], X[i][j].Prec())
-		}
-		fmt.Printf("\n")
-	}
-}
-
-// Print a matrix
-func printBigIntMatrix(name string, X [][]big.Int) {
-	n := len(X) - 1
-	for i := 1; i <= n; i++ {
-		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %d\n", name, i, j, &X[i][j])
-		}
-		fmt.Printf("\n")
-	}
-}
-
-// Print a vector
-func printVector(name string, x []big.Float) {
-	for i := range x {
-		if i == 0 {
-			continue
-		}
-		fmt.Printf("%s[%d] = %.*f (prec = %d)\n", name, i, digits(x[i].Prec()), &x[i], x[i].Prec())
-	}
 }
 
 // Create a new environment for evaluating Pslq at the given
