@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strings"
 )
 
 type num interface {
@@ -46,8 +47,8 @@ func newMatrix(rows, cols int, prec uint) [][]big.Float {
 	// Make a continuously allocated row with all the items
 	U := make([]big.Float, rows*cols)
 	M := make([][]big.Float, rows)
-	for i := 0; i < cols; i++ {
-		M[i] = U[rows*i : rows*(i+1) : rows*(i+1)]
+	for i := 0; i < rows; i++ {
+		M[i] = U[cols*i : cols*(i+1) : cols*(i+1)]
 		// M[i] = make([]big.Float, cols)
 		for j := range M[i] {
 			M[i][j].SetPrec(prec)
@@ -61,8 +62,20 @@ func newMatrixFloat64(rows, cols int) [][]float64 {
 	// Make a continuously allocated row with all the items
 	U := make([]float64, rows*cols)
 	M := make([][]float64, rows)
-	for i := 0; i < cols; i++ {
-		M[i] = U[rows*i : rows*(i+1) : rows*(i+1)]
+	for i := 0; i < rows; i++ {
+		M[i] = U[cols*i : cols*(i+1) : cols*(i+1)]
+	}
+	return M
+}
+
+// Make a new matrix with that many rows and that many cols
+func newBigIntMatrix(rows, cols int) [][]big.Int {
+	// Make a continuously allocated row with all the items
+	U := make([]big.Int, rows*cols)
+	M := make([][]big.Int, rows)
+	for i := 0; i < rows; i++ {
+		M[i] = U[cols*i : cols*(i+1) : cols*(i+1)]
+		// M[i] = make([]big.Int, cols)
 	}
 	return M
 }
@@ -86,18 +99,6 @@ func newVectorInt(n int) []int {
 	return make([]int, n)
 }
 
-// Make a new matrix with that many rows and that many cols
-func newBigIntMatrix(rows, cols int) [][]big.Int {
-	// Make a continuously allocated row with all the items
-	U := make([]big.Int, rows*cols)
-	M := make([][]big.Int, rows)
-	for i := 0; i < cols; i++ {
-		M[i] = U[rows*i : rows*(i+1) : rows*(i+1)]
-		// M[i] = make([]big.Int, cols)
-	}
-	return M
-}
-
 // Return how many decimal digits we should print given a given binary precision
 func digits(prec uint) uint {
 	return uint(math.Ceil(math.Log10(2) * float64(prec)))
@@ -115,14 +116,51 @@ func printMatrix(name string, X [][]big.Float) {
 }
 
 // Print a matrix
+// Row  1
+//
+//		1.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+//	    -1.86301D-01   -2.00193D-01   -2.16280D-01    9.96727D-01    0.00000D+00
+//		0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+//		0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+/*
+   4.13127D-01    0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+   0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+   0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+   0.00000D+00    0.00000D+00    0.00000D+00    0.00000D+00
+
+   4.13127E-01    0.00000E+00    0.00000E+00    0.00000E+00    0.00000E+00
+   0.00000E+00    0.00000E+00    0.00000E+00    0.00000E+00    0.00000E+00
+   0.00000E+00    0.00000E+00    0.00000E+00    0.00000E+00    0.00000E+00
+   0.00000E+00    0.00000E+00    0.00000E+00    0.00000E+00
+*/
 func printMatrixFloat64(name string, X [][]float64) {
+	// n := len(X) - 1
+	// for i := 1; i <= n; i++ {
+	// 	for j := 1; j <= n; j++ {
+	// 		fmt.Printf("%s[%d,%d] = %.*f\n", name, i, j, digits(53), X[i][j])
+	// 	}
+	// 	fmt.Printf("\n")
+	// }
+
+	//fmt.Println(name)
 	n := len(X) - 1
-	for i := 1; i <= n; i++ {
-		for j := 1; j <= n; j++ {
-			fmt.Printf("%s[%d,%d] = %.*f\n", name, i, j, digits(53), X[i][j])
-		}
-		fmt.Printf("\n")
+	colMax := n
+	if name == "dh" {
+		colMax -= 1
 	}
+	var out strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&out, "Row%3d\n", i)
+		for j := 1; j <= colMax; j += 5 {
+			jEnd := min(j+5, colMax+1)
+			for _, v := range X[i][j:jEnd] {
+				fmt.Fprintf(&out, "%15.5E", v)
+			}
+			//fmt.Printf("%s[%d,%d] = %.*f\n", name, i, j, digits(53), X[i][j])
+			fmt.Fprintf(&out, "\n")
+		}
+	}
+	fmt.Print(strings.ReplaceAll(out.String(), "E", "D"))
 }
 
 // Print a matrix
@@ -148,10 +186,36 @@ func printVector(name string, x []big.Float) {
 
 // Print a vector
 func printVectorFloat64(name string, x []float64) {
+	// for i := range x {
+	// 	if i == 0 {
+	// 		continue
+	// 	}
+	// 	fmt.Printf("%s[%d] = %.*f\n", name, i, digits(53), x[i])
+	// }
+
+	// fmt.Println(name)
+	n := len(x) - 1
+	var out strings.Builder
+	for i := 1; i <= 1; i++ {
+		fmt.Fprintf(&out, "Row%3d\n", i)
+		for j := 1; j <= n; j += 5 {
+			jEnd := min(j+5, n+1)
+			for _, v := range x[j:jEnd] {
+				fmt.Fprintf(&out, "%15.5E", v)
+			}
+			//fmt.Printf("%s[%d,%d] = %.*f\n", name, i, j, digits(53), X[i][j])
+			fmt.Fprintf(&out, "\n")
+		}
+	}
+	fmt.Print(strings.ReplaceAll(out.String(), "E", "D"))
+}
+
+// Print a vector
+func printVectorInt(name string, x []int) {
 	for i := range x {
 		if i == 0 {
 			continue
 		}
-		fmt.Printf("%s[%d] = %.*f\n", name, i, digits(53), x[i])
+		fmt.Printf("%s[%d] = %d\n", name, i, x[i])
 	}
 }

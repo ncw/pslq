@@ -32,6 +32,7 @@ var (
 	tryAll                    = flag.Bool("try-all", false, "Try all combinations of input until solution found")
 	tryAllRandom              = flag.Bool("try-all-random", false, "If set, uses random masks for -try-all")
 	workers                   = flag.Int("workers", runtime.NumCPU(), "Use this many threads in -try-all")
+	algorithm                 = flag.Int("algorithm", 1, "Which algorithm to use. 1: orig, 2: pslqm2")
 	stdin           io.Reader = os.Stdin
 	stdout          io.Writer = os.Stdout
 	digits          int
@@ -240,7 +241,7 @@ func run(p *pslq.Pslq, xs []big.Float, names []string) error {
 
 // Iterate through numbers < 1<<b in number of bits set order
 //
-// When the iteration is finished it returns 0
+// # When the iteration is finished it returns 0
 //
 // Given an n (current number) and b (highest bit to be set) this
 // returns the next number. This will have the same number of bits set
@@ -401,7 +402,7 @@ func main() {
 	maxCoeff := big.NewInt(1)
 	maxCoeff.Lsh(maxCoeff, *logMaxCoeff)
 
-	pslq := pslq.New(*prec).SetMaxSteps(*iterations).SetVerbose(*verbose).SetMaxCoeff(maxCoeff).SetTarget(uint(float64(*prec) * (*targetPrecision)))
+	pslq := pslq.New(*prec).SetMaxSteps(*iterations).SetVerbose(*verbose).SetMaxCoeff(maxCoeff).SetTarget(uint(float64(*prec) * (*targetPrecision))).SetAlgorithm(*algorithm)
 	var err error
 	if *tryAll {
 		err = runTryAll(pslq, xs, names)

@@ -59,6 +59,7 @@ type Pslq struct {
 	verbose     bool
 	one         big.Float
 	half        big.Float
+	algorithm   int // 1 orig, 2 pslqm2
 }
 
 // Create a new environment for evaluating Pslq at the given
@@ -70,13 +71,21 @@ type Pslq struct {
 // increased precision.
 func New(Prec uint) *Pslq {
 	e := &Pslq{
-		prec:     Prec,
-		maxsteps: 100,
+		prec:      Prec,
+		maxsteps:  100,
+		algorithm: 1,
 	}
 	e.one.SetPrec(Prec).SetFloat64(1)
 	e.half.SetPrec(Prec).SetFloat64(0.5)
 	e.SetMaxCoeff(big.NewInt(1000))
 	e.SetTarget((Prec * 3) / 4)
+	return e
+}
+
+// SetAlgorithm if passed a true parameter then Run will log its
+// progress
+func (e *Pslq) SetAlgorithm(algorithm int) *Pslq {
+	e.algorithm = algorithm
 	return e
 }
 
@@ -129,7 +138,7 @@ func (e *Pslq) NearestInt(x *big.Float, res *big.Int) {
 // uses the PSLQ algorithm to find a list of integers
 // [c_0, c_1, ..., c_n] such that
 //
-//     |c_1 * x_1 + c_2 * x_2 + ... + c_n * x_n| < tolerance
+//	|c_1 * x_1 + c_2 * x_2 + ... + c_n * x_n| < tolerance
 //
 // and such that max |c_k| < maxcoeff. If no such vector exists, Pslq
 // returns one of the errors in this package depending on whether it
@@ -142,6 +151,32 @@ func (e *Pslq) NearestInt(x *big.Float, res *big.Int) {
 //
 // If a result is returned, the first non-zero element will be positive
 func (e *Pslq) Run(x []big.Float) ([]big.Int, error) {
+	switch e.algorithm {
+	case 1:
+		return e.RunOriginal(x)
+	case 2:
+		return e.RunM2(x)
+	}
+	return nil, errors.New("algorithm not found")
+}
+
+// Given a vector of real numbers x = [x_0, x_1, ..., x_n], this
+// uses the PSLQ algorithm to find a list of integers
+// [c_0, c_1, ..., c_n] such that
+//
+//	|c_1 * x_1 + c_2 * x_2 + ... + c_n * x_n| < tolerance
+//
+// and such that max |c_k| < maxcoeff. If no such vector exists, Pslq
+// returns one of the errors in this package depending on whether it
+// has run out of iterations, precision or explored up to the
+// maxcoeff. The tolerance defaults to 3/4 of the precision.
+//
+// This is a fairly direct translation of the pseudocode given by
+// David Bailey, "The PSLQ Integer Relation Algorithm":
+// http://www.cecm.sfu.ca/organics/papers/bailey/paper/html/node3.html
+//
+// If a result is returned, the first non-zero element will be positive
+func (e *Pslq) RunOriginal(x []big.Float) ([]big.Int, error) {
 	n := len(x)
 	if n <= 1 {
 		return nil, ErrorBadArguments
