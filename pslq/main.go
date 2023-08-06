@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ var (
 	tryAllRandom              = flag.Bool("try-all-random", false, "If set, uses random masks for -try-all")
 	workers                   = flag.Int("workers", runtime.NumCPU(), "Use this many threads in -try-all")
 	algorithm                 = flag.Int("algorithm", 1, "Which algorithm to use. 1: orig, 2: pslqm2")
+	profile                   = flag.String("profile", "", "Write a CPU profile to this file")
 	stdin           io.Reader = os.Stdin
 	stdout          io.Writer = os.Stdout
 	digits          int
@@ -377,6 +379,21 @@ func main() {
 	if len(args) < 1 {
 		fatalf("No input supplied\n")
 	}
+
+	// Setup CPU profiling if desired
+	if *profile != "" {
+		log.Printf("Creating CPU profile %q\n", *profile)
+		f, err := os.Create(*profile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	var xs []big.Float
 	var names []string
 	for _, arg := range args {
