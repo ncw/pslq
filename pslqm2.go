@@ -1546,6 +1546,8 @@ func mxmdm(n1, n2 int, prec uint, a [][]float64, b [][]big.Float) {
 	// type (mp_real) b(n1,n2), c(n1)
 	var c = newVector(n1+1, prec)
 	var t1 big.Float
+	var t2 big.Float
+	t2.SetPrec(prec)
 
 	for j = 1; j <= n2; j++ {
 		for i = 1; i <= n1; i++ {
@@ -1554,9 +1556,12 @@ func mxmdm(n1, n2 int, prec uint, a [][]float64, b [][]big.Float) {
 			for k = 1; k <= n1; k++ {
 				// c[i] = c[i] + mpprod(b[k][j], a[i][k])
 				t1.SetFloat64(a[i][k])
-				t1.SetPrec(prec)
-				t1.Mul(&b[k][j], &t1)
-				c[i].Add(&c[i], &t1)
+				//t1.SetPrec(prec)
+				//t1.Mul(&b[k][j], &t1)
+				// Go math.Big does not optimise small precision & big precision
+				// So wasting a lot of time here
+				t2.Mul(&b[k][j], &t1)
+				c[i].Add(&c[i], &t2)
 			}
 		}
 
