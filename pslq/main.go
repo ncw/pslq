@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	cryptorand "crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -241,32 +242,76 @@ func run(p *pslq.Pslq, xs []big.Float, names []string) error {
 	return nil
 }
 
+// Return the number of bits set in z
+func onesCount(z *big.Int) (count int) {
+	for _, x := range z.Bits() {
+		count += bits.OnesCount(uint(x))
+	}
+	return count
+}
+
+var (
+	_1 = big.NewInt(1)
+	_2 = big.NewInt(2)
+)
+
 // Iterate through numbers < 1<<b in number of bits set order
 //
 // # When the iteration is finished it returns 0
 //
 // Given an n (current number) and b (highest bit to be set) this
-// returns the next number. This will have the same number of bits set
+// changes n to the next number. This will have the same number of bits set
 // as n unless there are no more numbers with that many bits.
-func next(n uint64, b int) uint64 {
-	if n == 0 {
-		return 1
+func next(n *big.Int, b int) {
+	if n.Sign() == 0 {
+		n.SetInt64(1)
+		return
 	}
-	lo := n & -n           // lowest one bit
-	lz := (n + lo) & ^n    // lowest zero bit above lo
-	n |= lz                // add lz to the set
-	n &= ^(lz - 1)         // reset bits below lz
-	n |= (lz / lo / 2) - 1 // put back right number of bits at end
+	var lo, lz, tmp big.Int
+
+	// lowest one bit
+	// lo := n & -n
+	lo.Neg(n)
+	lo.And(n, &lo)
+
+	// lowest zero bit above lo
+	// lz := (n + lo) & ^n
+	tmp.Add(n, &lo)
+	lz.Not(n)
+	lz.And(&tmp, &lz)
+
+	// add lz to the set
+	// n |= lz
+	n.Or(n, &lz)
+
+	// reset bits below lz
+	// n &= ^(lz - 1)
+	tmp.Sub(&lz, _1)
+	tmp.Not(&tmp)
+	n.And(n, &tmp)
+
+	// put back right number of bits at end
+	// n |= (lz / lo / 2) - 1
+	loZeroes := lo.TrailingZeroBits()
+	tmp.Rsh(&lz, loZeroes+1)
+	tmp.Sub(&tmp, _1)
+	n.Or(n, &tmp)
+
 	// If we exceed bits, start next count
-	if n > ((1 << b) - 1) {
-		newBits := bits.OnesCount64(n) + 1
+	highestBit := n.BitLen() - 1
+	//if n > ((1 << b) - 1) {
+	if highestBit >= b {
+		newBits := onesCount(n) + 1
 		if newBits > b {
 			// reset
-			return 0
+			n.SetInt64(0)
+			return
 		}
-		n = (1 << newBits) - 1
+		// n = (1 << newBits) - 1
+		n.SetInt64(0)
+		n.SetBit(n, newBits, 1)
+		n.Sub(n, _1)
 	}
-	return n
 }
 
 // Do an All run of pslq with xs
@@ -274,22 +319,25 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 	const statsPrintTime = 10 * time.Second
 	start := time.Now()
 	nextStat := time.Now().Add(statsPrintTime)
-	if len(xs) >= 64 {
-		return errors.New("Can't have 64 or more items with -try-all")
-	}
-	trials := uint64(1) << len(xs)
+
 	trialsBits := len(xs)
 	if *needFirst {
-		trials >>= 1
 		trialsBits -= 1
+	}
+	trials := uint64(math.MaxUint64)
+	if trialsBits < 64 {
+		trials = uint64(1) << trialsBits
 	}
 	found := uint64(0)
 	total := uint64(0)
 	badRelation := uint64(0)
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 
+	var trialsBig big.Int
+	trialsBig.SetBit(&trialsBig, trialsBits, 1)
+
 	// Create worker routines
-	in := make(chan uint64, *workers)
+	in := make(chan big.Int, *workers)
 	var wg sync.WaitGroup
 	for k := 0; k < *workers; k++ {
 		wg.Add(1)
@@ -305,7 +353,8 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 				namesCopy = namesCopy[:0]
 				index = index[:0]
 				for j := range xs {
-					if ((1 << j) & i) == 0 {
+					// if ((1 << j) & i) == 0 {
+					if i.Bit(j) == 0 {
 						xsCopy = append(xsCopy, xs[j])
 						namesCopy = append(namesCopy, names[j])
 						index = append(index, j)
@@ -338,7 +387,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 	}
 
 	// Bitmask for each trial
-	mask := uint64(0)
+	var mask big.Int
 	for i := uint64(0); i < trials; i++ {
 		now := time.Now()
 		if now.After(nextStat) {
@@ -349,16 +398,22 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 			nextStat = nextStat.Add(statsPrintTime)
 		}
 		// If needFirst is set we always want the first item in the mask
-		workerMask := mask
+		var workerMask big.Int
+		workerMask.Set(&mask)
 		if *needFirst {
-			workerMask = mask << 1
+			// workerMask = mask << 1
+			workerMask.Lsh(&mask, 1)
 		}
 		// Get the workers to calculate the mask
 		in <- workerMask
 		if *tryAllRandom {
-			mask = random.Uint64() & (trials - 1)
+			newMask, err := cryptorand.Int(random, &trialsBig)
+			if err != nil {
+				return err
+			}
+			mask.Set(newMask)
 		} else {
-			mask = next(mask, trialsBits)
+			next(&mask, trialsBits)
 		}
 	}
 	// Signal to workers they are finished

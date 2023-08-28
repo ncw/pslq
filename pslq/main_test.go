@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"math/big"
 	"math/bits"
 	"os"
 	"sort"
@@ -66,12 +67,25 @@ func TestMain(t *testing.T) {
 }
 
 func testNext(t *testing.T, b int, expected []uint64) {
-	n := uint64(0)
+	var n big.Int
+	var wantBig big.Int
 	for i, want := range expected {
-		if want != n {
-			t.Errorf("Want[%d] %06b got %06b", i, want, n)
+		wantBig.SetUint64(want)
+		if wantBig.Cmp(&n) != 0 {
+			t.Errorf("Want[%d] %06b got %06b", i, &wantBig, &n)
 		}
-		n = next(n, b)
+		next(&n, b)
+	}
+}
+
+func testNextBig(t *testing.T, n *big.Int, b int, expected []string) {
+	var wantBig big.Int
+	for i, want := range expected {
+		wantBig.SetString(want, 0)
+		if wantBig.Cmp(n) != 0 {
+			t.Errorf("Want[%d] %06b got %06b", i, &wantBig, n)
+		}
+		next(n, b)
 	}
 }
 
@@ -109,6 +123,21 @@ func TestNext3(t *testing.T) {
 		0b110,
 		0b111,
 		0b000,
+	})
+}
+
+func TestNext3Big(t *testing.T) {
+	var n big.Int
+	testNextBig(t, &n, 3, []string{
+		"0b000",
+		"0b001",
+		"0b010",
+		"0b100",
+		"0b011",
+		"0b101",
+		"0b110",
+		"0b111",
+		"0b000",
 	})
 }
 
@@ -185,12 +214,13 @@ func TestNext6(t *testing.T) {
 func TestNext20(t *testing.T) {
 	ns := make([]uint64, 0, 1<<20)
 	for j := 1; j <= 20; j++ {
-		n := uint64(0)
+		var n big.Int
 		ns := ns[:0]
 		for {
-			ns = append(ns, n)
-			n = next(n, j)
-			if n == 0 {
+			n64 := n.Uint64()
+			ns = append(ns, n64)
+			next(&n, j)
+			if n.Sign() == 0 {
 				break
 			}
 		}
@@ -216,4 +246,29 @@ func TestNext20(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestNext65(t *testing.T) {
+	var n big.Int
+	n.SetBit(&n, 62, 1)
+	testNextBig(t, &n, 65, []string{
+		"0b00100000000000000000000000000000000000000000000000000000000000000",
+		"0b01000000000000000000000000000000000000000000000000000000000000000",
+		"0b10000000000000000000000000000000000000000000000000000000000000000",
+		"0b00000000000000000000000000000000000000000000000000000000000000011",
+		"0b00000000000000000000000000000000000000000000000000000000000000101",
+	})
+}
+
+func TestNext65b(t *testing.T) {
+	var n big.Int
+	n.SetBit(&n, 65, 1)
+	var _1 big.Int
+	_1.SetInt64(1)
+	n.Sub(&n, &_1)
+	testNextBig(t, &n, 65, []string{
+		"0b11111111111111111111111111111111111111111111111111111111111111111",
+		"0b00000000000000000000000000000000000000000000000000000000000000000",
+		"0b00000000000000000000000000000000000000000000000000000000000000001",
+	})
 }
