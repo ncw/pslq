@@ -314,31 +314,11 @@ func next(n *big.Int, b int) {
 	}
 }
 
-// Do an All run of pslq with xs
-func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
-	const statsPrintTime = 10 * time.Second
-	start := time.Now()
-	nextStat := time.Now().Add(statsPrintTime)
-
-	trialsBits := len(xs)
-	if *needFirst {
-		trialsBits -= 1
-	}
-	trials := uint64(math.MaxUint64)
-	if trialsBits < 64 {
-		trials = uint64(1) << trialsBits
-	}
-	found := uint64(0)
-	total := uint64(0)
-	badRelation := uint64(0)
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	var trialsBig big.Int
-	trialsBig.SetBit(&trialsBig, trialsBits, 1)
-
-	// Create worker routines
+// create the workers to run the search
+//
+// This returns a channel masks should be pumped into
+func createWorkers(p *pslq.Pslq, xs []big.Float, names []string, wg *sync.WaitGroup, found, total, badRelation *uint64) chan big.Int {
 	in := make(chan big.Int, *workers)
-	var wg sync.WaitGroup
 	for k := 0; k < *workers; k++ {
 		wg.Add(1)
 		go func() {
@@ -368,7 +348,7 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 					continue
 				}
 				if *needFirst && result[0].Sign() == 0 {
-					atomic.AddUint64(&badRelation, 1)
+					atomic.AddUint64(badRelation, 1)
 					continue
 				}
 				for i := range unscrambledResults {
@@ -377,14 +357,42 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 				for i, j := range index {
 					unscrambledResults[j] = result[i]
 				}
-				atomic.AddUint64(&total, 1)
+				atomic.AddUint64(total, 1)
 				//if printResults(p, xsCopy, namesCopy, result) {
 				if printResults(p, xs, names, unscrambledResults) {
-					atomic.AddUint64(&found, 1)
+					atomic.AddUint64(found, 1)
 				}
 			}
 		}()
 	}
+	return in
+}
+
+// Do an All run of pslq with xs
+func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
+	const statsPrintTime = 10 * time.Second
+	start := time.Now()
+	nextStat := time.Now().Add(statsPrintTime)
+
+	trialsBits := len(xs)
+	if *needFirst {
+		trialsBits -= 1
+	}
+	trials := uint64(math.MaxUint64)
+	if trialsBits < 64 {
+		trials = uint64(1) << trialsBits
+	}
+	found := uint64(0)
+	total := uint64(0)
+	badRelation := uint64(0)
+	random := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	var trialsBig big.Int
+	trialsBig.SetBit(&trialsBig, trialsBits, 1)
+
+	// Create worker routines
+	var wg sync.WaitGroup
+	in := createWorkers(p, xs, names, &wg, &found, &total, &badRelation)
 
 	// Bitmask for each trial
 	var mask big.Int
