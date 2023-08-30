@@ -3,7 +3,6 @@ package main
 
 import (
 	"bufio"
-	cryptorand "crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,12 +32,15 @@ var (
 	targetPrecision           = flag.Float64("target-precision", 0.75, "Target precision of the result as fraction of prec")
 	tryAll                    = flag.Bool("try-all", false, "Try all combinations of input until solution found")
 	tryAllRandom              = flag.Bool("try-all-random", false, "If set, uses random masks for -try-all")
+	randomWeight              = flag.String("random-weight", "", "If set, controls masked-bits for -try-all, should 'int' or 'int-int'")
 	workers                   = flag.Int("workers", runtime.NumCPU(), "Use this many threads in -try-all")
 	algorithm                 = flag.Int("algorithm", 1, "Which algorithm to use. 1: orig, 2: pslqm2")
 	profile                   = flag.String("profile", "", "Write a CPU profile to this file")
 	stdin           io.Reader = os.Stdin
 	stdout          io.Writer = os.Stdout
 	digits          int
+	minWeight       int // minimum number of nonzeros when using random
+	maxWeight       int // maximum number of nonzeros when using random
 )
 
 // syntaxError prints the syntax
@@ -362,6 +364,7 @@ func createWorkers(p *pslq.Pslq, xs []big.Float, names []string, wg *sync.WaitGr
 				if printResults(p, xs, names, unscrambledResults) {
 					atomic.AddUint64(found, 1)
 				}
+				fmt.Printf("Result found with mask=%0*b len(xs)=%d\n", len(xs), &i, len(xs))
 			}
 		}()
 	}
@@ -389,6 +392,11 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 
 	var trialsBig big.Int
 	trialsBig.SetBit(&trialsBig, trialsBits, 1)
+	var trialsBigMask big.Int
+	trialsBigMask.Sub(&trialsBig, _1)
+	if *needFirst {
+		trialsBigMask.Lsh(&trialsBigMask, 1)
+	}
 
 	// Create worker routines
 	var wg sync.WaitGroup
@@ -405,24 +413,31 @@ func runTryAll(p *pslq.Pslq, xs []big.Float, names []string) error {
 			fmt.Fprintf(stdout, "Iteration %d/%d iterations/second %.2f eta %v, Unique %d/%d, Bad %d\n", i, trials, iterationsPerSecond, eta, atomic.LoadUint64(&found), atomic.LoadUint64(&total), atomic.LoadUint64(&badRelation))
 			nextStat = nextStat.Add(statsPrintTime)
 		}
-		// If needFirst is set we always want the first item in the mask
 		var workerMask big.Int
-		workerMask.Set(&mask)
-		if *needFirst {
-			// workerMask = mask << 1
-			workerMask.Lsh(&mask, 1)
+		// If needFirst is set we always want the first item in the mask
+		if *tryAllRandom {
+			workerMask.Set(&trialsBigMask)
+			weight := random.Intn(maxWeight-minWeight+1) + minWeight
+			for i := 0; i < weight; i++ {
+				for {
+					bit := random.Intn(len(xs))
+					if workerMask.Bit(bit) == 1 {
+						workerMask.SetBit(&workerMask, bit, 0)
+						break
+					}
+				}
+			}
+			//fmt.Printf("weight=%2d, mask=%0*b\n", weight, len(xs), &workerMask)
+		} else {
+			workerMask.Set(&mask)
+			if *needFirst {
+				// workerMask = mask << 1
+				workerMask.Lsh(&mask, 1)
+			}
+			next(&mask, trialsBits)
 		}
 		// Get the workers to calculate the mask
 		in <- workerMask
-		if *tryAllRandom {
-			newMask, err := cryptorand.Int(random, &trialsBig)
-			if err != nil {
-				return err
-			}
-			mask.Set(newMask)
-		} else {
-			next(&mask, trialsBits)
-		}
 	}
 	// Signal to workers they are finished
 	close(in)
@@ -476,6 +491,25 @@ func main() {
 	for i := range xs {
 		x := &xs[i]
 		fmt.Fprintf(stdout, "%s = %.*f\n", names[i], digits, x)
+	}
+
+	if *randomWeight != "" {
+		if strings.Contains(*randomWeight, "-") {
+			fmt.Sscanf(*randomWeight, "%d-%d", &minWeight, &maxWeight)
+		} else {
+			fmt.Sscanf(*randomWeight, "%d", &minWeight)
+			maxWeight = minWeight
+		}
+		*tryAllRandom = true
+	} else {
+		minWeight = 0
+		maxWeight = len(xs)
+	}
+	if *needFirst && maxWeight >= len(xs) {
+		maxWeight = len(xs) - 1
+	}
+	if *tryAllRandom {
+		fmt.Fprintf(stdout, "Using random weight %d-%d\n", minWeight, maxWeight)
 	}
 
 	// max coefficient is 2^logMaxCoeff
