@@ -146,9 +146,10 @@ func (e *Pslq) RunM2(x []big.Float) ([]big.Int, error) {
 		ndr = 30
 		ndp = int(math.Floor(math.Log10(2) * float64(e.prec)))
 		nep = 30 - ndp
-		nrb = 200
-		r   = newVector(n+1, e.prec)
-		iq  int
+		nrb = int(math.Ceil(float64(e.maxcoeff.BitLen()) * math.Log10(2))) // approximate decimal digits from size of maxcoeff
+
+		r  = newVector(n+1, e.prec)
+		iq int
 	)
 
 	if e.verbose {
@@ -181,17 +182,40 @@ func (e *Pslq) RunM2(x []big.Float) ([]big.Int, error) {
 		return nil, ErrorToleranceRoundsToZero
 	}
 
+	// Temporary variables
+	tmp0 := new(big.Float).SetPrec(e.prec)
+	tmp1 := new(big.Float).SetPrec(e.prec)
+
 	// Convert to use 1-based indexing to allow us to be
 	// consistent with Bailey's indexing.
 	xOneIndexed := newVector(n+1, e.prec)
+	minx := new(big.Float).SetPrec(e.prec)
+	minxFirst := true
 	for i := 1; i <= n; i++ {
-		if x[i-1].Sign() == 0 {
+		p := &x[i-1]
+		if p.Sign() == 0 {
 			return nil, ErrorZeroArguments
 		}
-		xOneIndexed[i].Set(&x[i-1])
+		xOneIndexed[i].Set(p)
+		tmp0.Abs(p)
+		if minxFirst || tmp0.Cmp(minx) < 0 {
+			minxFirst = false
+			minx.Set(tmp0)
+		}
+
 	}
 
-	pslqm2(idb, n, e.prec, ndr, nrb, nep, xOneIndexed, e.maxsteps, &iq, r)
+	// Sanity check on magnitudes
+	tmp1.SetInt64(128)
+	tmp0.Quo(&e.tol, tmp1)
+	if minx.Cmp(tmp0) < 0 { //  minx < tol/128
+		return nil, ErrorArgumentTooSmall
+	}
+
+	err := pslqm2(idb, n, e.prec, ndr, nrb, nep, xOneIndexed, e.maxsteps, &iq, r)
+	if err != nil {
+		return nil, err
+	}
 	if iq == 0 {
 		return nil, ErrorNoRelationFound
 	}
@@ -202,6 +226,21 @@ func (e *Pslq) RunM2(x []big.Float) ([]big.Int, error) {
 		_, _ = r[i].Int(&res[i-1])
 	}
 
+	// Find sign of first non zero item
+	sign := 0
+	for i := range res {
+		sign = res[i].Sign()
+		if sign != 0 {
+			break
+		}
+	}
+
+	// Normalise res making first non-zero argument positive
+	if sign < 0 {
+		for i := range res {
+			res[i].Neg(&res[i])
+		}
+	}
 	return res, nil
 }
 
@@ -233,7 +272,7 @@ func (e *Pslq) RunM2(x []big.Float) ([]big.Int, error) {
 //	              if this is exceeded.
 //	nsq   int     Size of tables used in iterdp and itermpw; default = 8.
 //	deps  double  Tolerance for dynamic range check; default = 1d-10.
-func pslqm2(idb, n int, prec uint, ndr, nrb, nep int, x []big.Float, itm int, iq *int, r []big.Float) {
+func pslqm2(idb, n int, prec uint, ndr, nrb, nep int, x []big.Float, itm int, iq *int, r []big.Float) error {
 	var i, imq, it, its, izd, izm, j, j1, n1, n2, n3 int
 	const (
 		ipi = 100
@@ -277,7 +316,7 @@ func pslqm2(idb, n int, prec uint, ndr, nrb, nep int, x []big.Float, itm int, iq
 
 	// eps = mpreal(10.0, prec) ** nep // NB nep is -ve
 	if nep > 0 {
-		panic("nep should be -ve")
+		return ErrorPrecisionTooLow
 	}
 	var tBig1, tBig2, tBig3 big.Int
 	var one big.Float
@@ -364,9 +403,9 @@ L110:
 		}
 
 		lqdp(n, n-1, dh)
-		d3 = bounddp(n, dh)
+		d3 = bounddp(n, dh) // returns -1 on error condition
 		if d3 == -1.0 {
-			goto L150
+			return ErrorHMatrixTooSmall
 		}
 		rn = max(rn, d3)
 		if idb >= 2 {
@@ -378,13 +417,13 @@ L110:
 			if idb >= 1 {
 				fmt.Printf("Iteration limit exceeded %d\n", itm)
 			}
-			goto L150
+			return ErrorIterationsExceeded
 		}
 		if math.Log10(rn) > float64(nrb) {
 			if idb >= 1 {
 				fmt.Printf("Norm bound limit exceeded. %d\n", nrb)
 			}
-			goto L150
+			return ErrorNoRelationFound
 		}
 
 		// Test conditions on updtmp output flag izm:
@@ -401,7 +440,7 @@ L110:
 		} else if izm == 1 {
 			goto L140
 		} else if izm == 2 {
-			goto L150
+			return ErrorPrecisionExhausted
 		}
 	}
 
@@ -449,7 +488,7 @@ L130:
 	} else if izm == 1 {
 		goto L140
 	} else if izm == 2 {
-		goto L150
+		return ErrorPrecisionExhausted
 	}
 
 	// A relation has been detected.  Output the final norm bound and other info.
@@ -516,11 +555,10 @@ L140:
 		if idb >= 2 {
 			fmt.Printf("Relation is too large or insufficient dynamic range.\n")
 		}
+		return ErrorPrecisionExhausted
 	}
 
-L150:
-
-	return
+	return nil
 }
 
 //------------------------------

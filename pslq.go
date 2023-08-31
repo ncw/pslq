@@ -46,6 +46,7 @@ var (
 	ErrorArgumentTooSmall      = errors.New("one or more arguments are too small")
 	ErrorNoRelationFound       = errors.New("could not find an integer relation")
 	ErrorIterationsExceeded    = errors.New("ran out of iterations looking for relation")
+	ErrorHMatrixTooSmall       = errors.New("bound: h matrix too small --use 1-level (-algorithm 1) or 3-level pslqm program.")
 )
 
 // Pslq environment - may be reused and used concurrently
